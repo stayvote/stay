@@ -3,6 +3,13 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    
+    <meta property="og:title" content="STAY - 실시간 익명 투표">
+    <meta property="og:description" content="지금 바로 투표를 만들고 사람들의 솔직한 의견을 들어보세요.">
+    <meta property="og:type" content="website">
+    <meta property="og:url" content="https://stayvote.github.io/stay/">
+    <meta property="og:image" content="https://stayvote.github.io/stay/og-image.png">
+    
     <title>STAY - 실시간 익명 투표</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <style>
@@ -161,7 +168,7 @@
         window.copyLink = () => {
             const url = window.location.href;
             navigator.clipboard.writeText(url).then(() => {
-                alert("투표 링크가 복사되었습니다! 원하는 곳에 공유하여 의견을 들어보세요.");
+                alert("투표 링크가 복사되었습니다!");
             });
         };
 
@@ -253,11 +260,8 @@
         window.enterRoom = (id, isFromCreate = false, skipPush = false) => {
             currentRoomId = id;
             switchScreen('screen-room', skipPush, id);
-            
-            // 핵심 수정: 생성/수정 직후(isFromCreate)인 경우 BACK 버튼 숨김
             const backBtn = document.getElementById('btn-room-back');
             backBtn.style.display = isFromCreate ? 'none' : 'block';
-
             onValue(ref(db, `rooms/${id}`), snap => {
                 const data = snap.val(); if(!data) return;
                 document.getElementById('room-display-name').innerText = data.title;
@@ -302,7 +306,7 @@
                 update(ref(db, `rooms/${currentRoomId}`), { title, category, desc, "poll/options": options }).then(() => {
                     alert("성공적으로 수정되었습니다.");
                     isEditMode = false;
-                    enterRoom(currentRoomId, true, true); // 수정한 후 세 번째 인자로 true를 보내 BACK을 숨김
+                    enterRoom(currentRoomId, true, true); 
                 });
             } else {
                 const pw = document.getElementById('new-room-pw').value.trim();
@@ -312,17 +316,18 @@
                     const myIds = JSON.parse(localStorage.getItem('stay_user_created_polls') || '[]');
                     myIds.push(id);
                     localStorage.setItem('stay_user_created_polls', JSON.stringify(myIds));
-                    enterRoom(id, true); // 생성한 후 BACK을 숨김
+                    enterRoom(id, true); 
                 });
             }
         };
 
+        // 수정 기능 (모바일 대응)
         window.requestEdit = () => {
             const inputPw = prompt("비밀번호를 입력하세요:");
-            if(!inputPw) return;
+            if(inputPw === null) return; 
             get(ref(db, `rooms/${currentRoomId}`)).then(snap => {
                 const data = snap.val();
-                if(String(data.pw) === String(inputPw)) {
+                if(String(data.pw).trim() === String(inputPw).trim()) {
                     isEditMode = true;
                     switchScreen('screen-create');
                     document.getElementById('create-title').innerText = "Edit Post";
@@ -336,20 +341,35 @@
                         addOptionField(label, count);
                     });
                     document.getElementById('btn-submit-create').innerText = "내용 수정 완료";
-                } else alert("비밀번호가 틀렸습니다.");
+                } else {
+                    alert("비밀번호가 틀렸습니다.");
+                }
             });
         };
 
+        // 삭제 기능 버그 수정 (모바일 대응)
         window.requestDelete = () => {
-            const inputPw = prompt("비밀번호 입력:");
-            if(!inputPw) return;
-            get(ref(db, `rooms/${currentRoomId}/pw`)).then(snap => {
-                if(String(snap.val()) === String(inputPw)) {
-                    remove(ref(db, `rooms/${currentRoomId}`)).then(() => {
-                        alert("삭제되었습니다.");
-                        switchScreen('screen-main');
-                    });
-                } else alert("비밀번호가 틀렸습니다.");
+            const inputPw = prompt("투표를 삭제하시려면 비밀번호를 입력하세요:");
+            if(inputPw === null) return; 
+            
+            get(ref(db, `rooms/${currentRoomId}`)).then(snap => {
+                const data = snap.val();
+                if(!data) return;
+                
+                if(String(data.pw).trim() === String(inputPw).trim()) {
+                    if(confirm("정말로 이 투표를 삭제하시겠습니까?")) {
+                        remove(ref(db, `rooms/${currentRoomId}`)).then(() => {
+                            alert("삭제되었습니다.");
+                            allRooms = allRooms.filter(([id]) => id !== currentRoomId); // 캐시 즉시 업데이트
+                            switchScreen('screen-main');
+                            refreshData(); // 데이터 새로고침
+                        }).catch(e => {
+                            alert("삭제 중 오류가 발생했습니다.");
+                        });
+                    }
+                } else {
+                    alert("비밀번호가 틀렸습니다.");
+                }
             });
         };
 
