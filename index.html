@@ -25,9 +25,23 @@
         #side-menu { position: fixed; top: 0; left: 0; width: 280px; height: 100%; background: white; z-index: 10001; transform: translateX(-100%); transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1); box-shadow: 20px 0 50px rgba(0,0,0,0.1); }
         #menu-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.5); z-index: 10000; display: none; }
         input, textarea { font-size: 16px !important; background-color: #f3f4f6 !important; }
+        /* 커스텀 모달 스타일 */
+        #delete-modal { position: fixed; inset: 0; z-index: 20000; display: none; align-items: center; justify-content: center; background: rgba(0,0,0,0.6); padding: 20px; }
     </style>
 </head>
 <body>
+
+    <div id="delete-modal">
+        <div class="bg-white w-full max-w-xs p-6 rounded-[2rem] shadow-2xl space-y-4">
+            <h3 class="text-lg font-black text-center">투표 삭제</h3>
+            <p class="text-xs text-gray-500 text-center">비밀번호를 입력하면 삭제됩니다.</p>
+            <input type="password" id="modal-pw-input" placeholder="비밀번호" class="w-full bg-gray-100 rounded-xl p-4 outline-none text-center">
+            <div class="flex space-x-2">
+                <button onclick="closeDeleteModal()" class="flex-1 bg-gray-100 py-3 rounded-xl font-bold text-gray-500">취소</button>
+                <button onclick="confirmDelete()" class="flex-1 bg-red-500 py-3 rounded-xl font-bold text-white">삭제</button>
+            </div>
+        </div>
+    </div>
 
     <div id="menu-overlay" onclick="toggleMenu()"></div>
     <div id="side-menu">
@@ -96,7 +110,7 @@
             <div id="poll-display-area" class="space-y-3 mb-8"></div>
             <div class="flex space-x-2 mb-12">
                 <button onclick="requestEdit()" class="flex-1 bg-gray-50 text-indigo-500 text-[10px] font-black uppercase p-4 rounded-xl border border-indigo-50 transition-colors">Edit Post</button>
-                <button onclick="requestDelete()" class="flex-1 bg-gray-50 text-red-400 text-[10px] font-black uppercase p-4 rounded-xl border border-red-50">Delete Post</button>
+                <button onclick="openDeleteModal()" class="flex-1 bg-gray-50 text-red-400 text-[10px] font-black uppercase p-4 rounded-xl border border-red-50">Delete Post</button>
             </div>
             <div class="pt-10 border-t border-gray-100 text-left">
                 <h4 class="text-xs font-black text-gray-900 uppercase tracking-widest mb-6 px-2 text-center font-bold">Next for you</h4>
@@ -321,7 +335,7 @@
             }
         };
 
-        // 수정 기능 (모바일 대응)
+        // 수정 기능
         window.requestEdit = () => {
             const inputPw = prompt("비밀번호를 입력하세요:");
             if(inputPw === null) return; 
@@ -341,37 +355,41 @@
                         addOptionField(label, count);
                     });
                     document.getElementById('btn-submit-create').innerText = "내용 수정 완료";
-                } else {
-                    alert("비밀번호가 틀렸습니다.");
-                }
+                } else alert("비밀번호가 틀렸습니다.");
             });
         };
 
-        // 삭제 기능 버그 수정 (모바일 대응)
-        window.requestDelete = () => {
-            const inputPw = prompt("투표를 삭제하시려면 비밀번호를 입력하세요:");
-            if(inputPw === null) return; 
+        /* --- 버그 해결을 위한 모달 로직 --- */
+        window.openDeleteModal = () => {
+            document.getElementById('modal-pw-input').value = "";
+            document.getElementById('delete-modal').style.display = 'flex';
+        };
+
+        window.closeDeleteModal = () => {
+            document.getElementById('delete-modal').style.display = 'none';
+        };
+
+        window.confirmDelete = () => {
+            const inputPw = document.getElementById('modal-pw-input').value.trim();
+            if(!inputPw) return alert("비밀번호를 입력하세요.");
             
             get(ref(db, `rooms/${currentRoomId}`)).then(snap => {
                 const data = snap.val();
                 if(!data) return;
                 
-                if(String(data.pw).trim() === String(inputPw).trim()) {
-                    if(confirm("정말로 이 투표를 삭제하시겠습니까?")) {
-                        remove(ref(db, `rooms/${currentRoomId}`)).then(() => {
-                            alert("삭제되었습니다.");
-                            allRooms = allRooms.filter(([id]) => id !== currentRoomId); // 캐시 즉시 업데이트
-                            switchScreen('screen-main');
-                            refreshData(); // 데이터 새로고침
-                        }).catch(e => {
-                            alert("삭제 중 오류가 발생했습니다.");
-                        });
-                    }
+                if(String(data.pw).trim() === inputPw) {
+                    remove(ref(db, `rooms/${currentRoomId}`)).then(() => {
+                        alert("성공적으로 삭제되었습니다.");
+                        closeDeleteModal();
+                        switchScreen('screen-main');
+                        refreshData();
+                    }).catch(e => alert("오류 발생: " + e.message));
                 } else {
-                    alert("비밀번호가 틀렸습니다.");
+                    alert("비밀번호가 일치하지 않습니다.");
                 }
             });
         };
+        /* -------------------------------- */
 
         function renderPoll(poll, votedIPs) {
             const area = document.getElementById('poll-display-area'); area.innerHTML = "";
