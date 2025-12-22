@@ -76,7 +76,7 @@
             <select id="new-room-cat" class="w-full bg-gray-50 rounded-xl p-4 text-sm"><option value="일상/잡담">일상/잡담</option><option value="이슈/뉴스">이슈/뉴스</option><option value="연애/심리">연애/심리</option><option value="취미/문화">취미/문화</option></select>
             <input type="text" id="new-room-name" placeholder="투표 제목" class="w-full bg-gray-50 rounded-xl p-4 outline-none">
             <textarea id="new-room-desc" placeholder="설명 (선택)" rows="3" class="w-full bg-gray-50 rounded-xl p-4 text-sm outline-none resize-none"></textarea>
-            <div id="pw-field-container"><input type="password" id="new-room-pw" placeholder="삭제 및 수정 비밀번호" class="w-full bg-gray-100 rounded-xl p-4 text-sm outline-none"></div>
+            <div id="pw-field-container"><input type="password" id="new-room-pw" placeholder="삭제 및 수정 비밀번호" class="w-full bg-gray-50 rounded-xl p-4 text-sm outline-none"></div>
             <div id="options-list" class="space-y-2 pt-2"></div>
             <button id="btn-add-option" onclick="addOptionField()" class="text-[10px] text-indigo-500 font-bold uppercase p-2">+ Add Option</button>
             <button id="btn-submit-create" onclick="processCreate()" class="w-full btn-main py-4 rounded-xl font-bold text-lg clickable mt-4 shadow-md">게시글 올리기</button>
@@ -319,9 +319,10 @@
                 update(ref(db, `rooms/${currentRoomId}`), { title, category, desc, "poll/options": options }).then(() => {
                     alert("성공적으로 수정되었습니다.");
                     isEditMode = false;
-                    // 수정 완료 후, 뒤로가기 시 작성 폼이 안 나오게 함
-                    const newUrl = window.location.protocol + "//" + window.location.host + window.location.pathname + '?id=' + currentRoomId;
-                    window.location.replace(newUrl);
+                    // 등록 성공 시 기록 덮어쓰기 로직
+                    const finalUrl = window.location.protocol + "//" + window.location.host + window.location.pathname + '?id=' + currentRoomId;
+                    history.replaceState({ screen: 'screen-room', roomId: currentRoomId }, "", finalUrl);
+                    enterRoom(currentRoomId, true, true);
                 });
             } else {
                 const pw = document.getElementById('new-room-pw').value.trim();
@@ -331,9 +332,10 @@
                     const myIds = JSON.parse(localStorage.getItem('stay_user_created_polls') || '[]');
                     myIds.push(id);
                     localStorage.setItem('stay_user_created_polls', JSON.stringify(myIds));
-                    // 등록 완료 후, 뒤로가기 시 작성 폼이 안 나오게 함
-                    const newUrl = window.location.protocol + "//" + window.location.host + window.location.pathname + '?id=' + id;
-                    window.location.replace(newUrl);
+                    // 등록 성공 시 기록 덮어쓰기 로직
+                    const finalUrl = window.location.protocol + "//" + window.location.host + window.location.pathname + '?id=' + id;
+                    history.replaceState({ screen: 'screen-room', roomId: id }, "", finalUrl);
+                    enterRoom(id, true, true);
                 });
             }
         };
