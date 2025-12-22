@@ -135,9 +135,10 @@
 
         fetch('https://api.ipify.org?format=json').then(r => r.json()).then(d => { userIP = d.ip.replace(/\./g, '_'); });
 
-        // 첫 화면으로 강제 이동하는 함수
+        // 첫 화면으로 강제 이동 (히스토리를 지우고 첫 화면으로 대체)
         window.goToMain = () => {
-            window.location.href = window.location.protocol + "//" + window.location.host + window.location.pathname;
+            const mainUrl = window.location.protocol + "//" + window.location.host + window.location.pathname;
+            window.location.replace(mainUrl);
         };
 
         window.switchScreen = (id, skipPush = false, roomId = null) => {
@@ -155,13 +156,12 @@
             window.scrollTo(0,0);
         };
 
-        // 뒤로가기 시 무조건 메인으로 보내는 핵심 로직
         window.onpopstate = (e) => {
             const state = e.state;
             if (state?.screen === 'screen-room' && state.roomId) {
                 enterRoom(state.roomId, false, true);
             } else {
-                // 생성/수정/목록 화면에서 뒤로가면 무조건 첫 화면으로
+                // 뒤로가기 시 무조건 첫 화면으로 대체
                 goToMain();
             }
         };
@@ -318,7 +318,8 @@
                 update(ref(db, `rooms/${currentRoomId}`), { title, category, desc, "poll/options": options }).then(() => {
                     alert("성공적으로 수정되었습니다.");
                     isEditMode = false;
-                    enterRoom(currentRoomId, true, true); 
+                    // 수정 완료 후 첫 화면으로 히스토리 교체
+                    goToMain();
                 });
             } else {
                 const pw = document.getElementById('new-room-pw').value.trim();
@@ -328,7 +329,9 @@
                     const myIds = JSON.parse(localStorage.getItem('stay_user_created_polls') || '[]');
                     myIds.push(id);
                     localStorage.setItem('stay_user_created_polls', JSON.stringify(myIds));
-                    enterRoom(id, true); 
+                    alert("성공적으로 등록되었습니다.");
+                    // 등록 완료 후 첫 화면으로 히스토리 교체
+                    goToMain();
                 });
             }
         };
