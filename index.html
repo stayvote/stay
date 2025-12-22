@@ -25,7 +25,6 @@
         #side-menu { position: fixed; top: 0; left: 0; width: 280px; height: 100%; background: white; z-index: 10001; transform: translateX(-100%); transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1); box-shadow: 20px 0 50px rgba(0,0,0,0.1); }
         #menu-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.5); z-index: 10000; display: none; }
         input, textarea { font-size: 16px !important; background-color: #f3f4f6 !important; }
-        /* 커스텀 모달 스타일 */
         #delete-modal { position: fixed; inset: 0; z-index: 20000; display: none; align-items: center; justify-content: center; background: rgba(0,0,0,0.6); padding: 20px; }
     </style>
 </head>
@@ -72,7 +71,7 @@
         <div class="w-full max-w-md bg-white p-8 rounded-[2rem] shadow-xl space-y-4">
             <div class="flex justify-between items-center mb-2">
                 <h3 id="create-title" class="text-xl font-black italic text-indigo-600 uppercase">New Post</h3>
-                <button onclick="window.history.back()" class="text-gray-400 font-bold text-[10px] p-2">BACK</button>
+                <button onclick="goToMain()" class="text-gray-400 font-bold text-[10px] p-2">CLOSE</button>
             </div>
             <select id="new-room-cat" class="w-full bg-gray-50 rounded-xl p-4 text-sm"><option value="일상/잡담">일상/잡담</option><option value="이슈/뉴스">이슈/뉴스</option><option value="연애/심리">연애/심리</option><option value="취미/문화">취미/문화</option></select>
             <input type="text" id="new-room-name" placeholder="투표 제목" class="w-full bg-gray-50 rounded-xl p-4 outline-none">
@@ -88,7 +87,7 @@
         <div class="sticky top-0 z-[100] glass p-5 flex justify-between items-center">
             <button onclick="toggleMenu()" class="p-2 font-black text-[10px]">MENU</button>
             <h2 id="current-board-name" class="text-xl font-black italic">전체보기</h2>
-            <button onclick="switchScreen('screen-main')" class="text-gray-400 font-bold text-[10px]">EXIT</button>
+            <button onclick="goToMain()" class="text-gray-400 font-bold text-[10px]">EXIT</button>
         </div>
         <div class="p-4"><input type="text" id="search-bar" oninput="renderList()" placeholder="제목 검색..." class="w-full bg-gray-100 rounded-xl py-4 px-5 text-sm outline-none"></div>
         <div id="room-list" class="p-4 space-y-4 bg-gray-50 min-h-screen"></div>
@@ -97,8 +96,7 @@
     <div id="screen-room" class="hidden min-h-screen bg-white">
         <div class="sticky top-0 z-[100] glass p-4 flex justify-between items-center bg-white">
             <div class="flex items-center space-x-2">
-                <button id="btn-room-back" onclick="handleBack()" class="text-gray-400 p-2 font-black text-[10px]">← BACK</button>
-                <button onclick="switchScreen('screen-main')" class="text-gray-600 p-2 font-black text-[10px]">EXIT</button>
+                <button onclick="goToMain()" class="text-gray-400 p-2 font-black text-[10px]">← HOME</button>
             </div>
             <button onclick="copyLink()" class="px-3 py-1 bg-indigo-50 text-indigo-600 text-[9px] font-bold rounded-full border border-indigo-100 uppercase tracking-tighter">Copy Link</button>
         </div>
@@ -137,6 +135,11 @@
 
         fetch('https://api.ipify.org?format=json').then(r => r.json()).then(d => { userIP = d.ip.replace(/\./g, '_'); });
 
+        // 첫 화면으로 강제 이동하는 함수
+        window.goToMain = () => {
+            window.location.href = window.location.protocol + "//" + window.location.host + window.location.pathname;
+        };
+
         window.switchScreen = (id, skipPush = false, roomId = null) => {
             document.querySelectorAll('div[id^="screen-"]').forEach(s => s.classList.add('hidden'));
             document.getElementById(id).classList.remove('hidden');
@@ -150,6 +153,17 @@
                 if(!skipPush) history.pushState({ screen: id }, "");
             }
             window.scrollTo(0,0);
+        };
+
+        // 뒤로가기 시 무조건 메인으로 보내는 핵심 로직
+        window.onpopstate = (e) => {
+            const state = e.state;
+            if (state?.screen === 'screen-room' && state.roomId) {
+                enterRoom(state.roomId, false, true);
+            } else {
+                // 생성/수정/목록 화면에서 뒤로가면 무조건 첫 화면으로
+                goToMain();
+            }
         };
 
         window.openCreateScreen = () => {
@@ -184,20 +198,6 @@
             navigator.clipboard.writeText(url).then(() => {
                 alert("투표 링크가 복사되었습니다!");
             });
-        };
-
-        window.handleBack = () => {
-            if (history.length > 1) window.history.back();
-            else switchScreen('screen-main');
-        };
-
-        window.onpopstate = (e) => {
-            const state = e.state;
-            if (state?.screen === 'screen-room' && state.roomId) {
-                enterRoom(state.roomId, false, true);
-            } else {
-                switchScreen(state?.screen || 'screen-main', true);
-            }
         };
 
         window.goSearch = () => {
@@ -274,8 +274,6 @@
         window.enterRoom = (id, isFromCreate = false, skipPush = false) => {
             currentRoomId = id;
             switchScreen('screen-room', skipPush, id);
-            const backBtn = document.getElementById('btn-room-back');
-            backBtn.style.display = isFromCreate ? 'none' : 'block';
             onValue(ref(db, `rooms/${id}`), snap => {
                 const data = snap.val(); if(!data) return;
                 document.getElementById('room-display-name').innerText = data.title;
@@ -335,7 +333,6 @@
             }
         };
 
-        // 수정 기능
         window.requestEdit = () => {
             const inputPw = prompt("비밀번호를 입력하세요:");
             if(inputPw === null) return; 
@@ -359,7 +356,6 @@
             });
         };
 
-        /* --- 버그 해결을 위한 모달 로직 --- */
         window.openDeleteModal = () => {
             document.getElementById('modal-pw-input').value = "";
             document.getElementById('delete-modal').style.display = 'flex';
@@ -372,24 +368,18 @@
         window.confirmDelete = () => {
             const inputPw = document.getElementById('modal-pw-input').value.trim();
             if(!inputPw) return alert("비밀번호를 입력하세요.");
-            
             get(ref(db, `rooms/${currentRoomId}`)).then(snap => {
                 const data = snap.val();
                 if(!data) return;
-                
                 if(String(data.pw).trim() === inputPw) {
                     remove(ref(db, `rooms/${currentRoomId}`)).then(() => {
                         alert("성공적으로 삭제되었습니다.");
                         closeDeleteModal();
-                        switchScreen('screen-main');
-                        refreshData();
-                    }).catch(e => alert("오류 발생: " + e.message));
-                } else {
-                    alert("비밀번호가 일치하지 않습니다.");
-                }
+                        goToMain();
+                    }).catch(e => alert("삭제 오류 발생"));
+                } else alert("비밀번호 불일치");
             });
         };
-        /* -------------------------------- */
 
         function renderPoll(poll, votedIPs) {
             const area = document.getElementById('poll-display-area'); area.innerHTML = "";
