@@ -325,7 +325,7 @@
             if (currentCategory !== "실시간 핫") filtered.sort((a,b) => (b[1].createdAt || 0) - (a[1].createdAt || 0));
             
             filtered.forEach(([id, room]) => {
-                // ⭐ 투표수 합계 로직 통일 ⭐
+                // ⭐ 목록 화면 전체 투표수 합산 로직 복구 ⭐
                 const totalVotes = room.poll?.options ? Object.values(room.poll.options).reduce((a, b) => Number(a) + Number(b), 0) : 0;
                 const timeText = room.createdAt ? getTimeAgo(room.createdAt) : "오래전";
                 const isHot = (getHotScore(room) > 0.1 || topHotIds.includes(id)) && totalVotes > 0; 
@@ -432,40 +432,42 @@
             });
         };
 
-        // --- ⭐ 투표 기능 최종 전역 선언 수정 (무조건 작동) ⭐ ---
-        window.handleVote = async (label) => {
+        // --- ⭐ 투표 기능 최종 전역 선언 (무조건 작동하는 클릭 로직) ⭐ ---
+        window.handleVoteAction = async (label) => {
             if(!isSecureAccess()) return;
             
             const roomRef = ref(db, `rooms/${currentRoomId}`);
+            
+            // 1. 서버 데이터를 최신 상태로 강제 읽기
             const snap = await get(roomRef);
             const roomData = snap.val();
             
             if (!roomData) return;
 
+            // 데이터 구조 깨져있을 경우 방어
             if (!roomData.poll) roomData.poll = { options: {} };
             if (!roomData.poll.options) roomData.poll.options = {};
             if (!roomData.votedIPs) roomData.votedIPs = {};
 
             const currentChoice = roomData.votedIPs[myFingerprint];
 
-            // 1. 이미 누른걸 다시 누름 -> 취소 (토글)
+            // 2. 투표 로직 연산 (Number 강제 변환으로 무한 증식 차단)
             if (currentChoice === label) {
+                // 토글 취소
                 roomData.poll.options[label] = Math.max(0, (Number(roomData.poll.options[label]) || 0) - 1);
                 delete roomData.votedIPs[myFingerprint];
-            } 
-            // 2. 다른걸 누름 -> 원래 항목 1 빼고 새 항목 1 더함 (변경)
-            else if (currentChoice) {
+            } else if (currentChoice) {
+                // 선택지 이동
                 roomData.poll.options[currentChoice] = Math.max(0, (Number(roomData.poll.options[currentChoice]) || 0) - 1);
                 roomData.poll.options[label] = (Number(roomData.poll.options[label]) || 0) + 1;
                 roomData.votedIPs[myFingerprint] = label;
-            } 
-            // 3. 처음 누름 -> 1 더함 (투표)
-            else {
+            } else {
+                // 신규 투표
                 roomData.poll.options[label] = (Number(roomData.poll.options[label]) || 0) + 1;
                 roomData.votedIPs[myFingerprint] = label;
             }
 
-            // 트랜잭션 대신 무조건 덮어쓰기 (클릭 반응성 극대화)
+            // 3. 서버에 최종 데이터 업데이트
             await set(roomRef, roomData);
         };
 
@@ -478,13 +480,14 @@
             Object.entries(options).forEach(([label, count]) => {
                 const per = total === 0 ? 0 : Math.round((Number(count) / total) * 100);
                 const div = document.createElement('div');
-                div.className = `relative h-16 rounded-2xl overflow-hidden bg-gray-50 border border-gray-100 mb-3 clickable ${myVote === label ? 'ring-2 ring-indigo-500 bg-white shadow-md' : ''}`;
+                // 클릭 속도와 가시성을 높이기 위해 ring 효과 최적화
+                div.className = `relative h-16 rounded-2xl overflow-hidden bg-gray-50 border border-gray-100 mb-3 clickable ${myVote === label ? 'ring-2 ring-indigo-500 bg-white shadow-md' : 'hover:bg-white'}`;
                 
-                // ⭐ 전역 window 함수 호출 방식으로 강제 변경 ⭐
-                div.setAttribute('onclick', `window.handleVote("${label}")`);
+                // ⭐ 전역 window 함수 호출 방식으로 강제 변경 (이벤트 무시 방지) ⭐
+                div.setAttribute('onclick', `window.handleVoteAction("${label}")`);
                 
                 const countDisplay = total > 0 ? `<div class="flex items-center space-x-2 text-[11px] font-bold"><span class="text-indigo-600">${per}%</span><span class="text-gray-200 font-light">|</span><span class="text-gray-400">${count} <span class="text-[9px] opacity-70">of</span> ${total}</span></div>` : `<span class="text-gray-300 text-[11px] font-bold">0%</span>`;
-                div.innerHTML = `<div class="vote-bar absolute bg-indigo-500 h-full opacity-[0.08]" style="width:${per}%"></div><div class="absolute inset-0 flex justify-between px-6 items-center font-bold"><span class="${myVote === label ? 'text-indigo-700' : 'text-gray-700'} text-sm">${label}</span>${countDisplay}</div>`;
+                div.innerHTML = `<div class="vote-bar absolute bg-indigo-500 h-full opacity-[0.08]" style="width:${per}%"></div><div class="absolute inset-0 flex justify-between px-6 items-center font-bold pointer-events-none"><span class="${myVote === label ? 'text-indigo-700' : 'text-gray-700'} text-sm">${label}</span>${countDisplay}</div>`;
                 area.appendChild(div);
             });
         }
