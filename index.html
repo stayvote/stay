@@ -12,6 +12,7 @@
     
     <title>STAY - 실시간 익명 투표</title>
     <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://openfpcdn.io/fingerprintjs/v4"></script>
     <style>
         @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700;900&display=swap');
         
@@ -108,7 +109,7 @@
             <select id="new-room-cat" class="w-full bg-gray-50 rounded-xl p-4 text-sm"><option value="일상/잡담">일상/잡담</option><option value="이슈/뉴스">이슈/뉴스</option><option value="연애/심리">연애/심리</option><option value="취미/문화">취미/문화</option></select>
             <input type="text" id="new-room-name" placeholder="투표 제목" class="w-full bg-gray-50 rounded-xl p-4 outline-none">
             <textarea id="new-room-desc" placeholder="설명 (선택)" rows="3" class="w-full bg-gray-50 rounded-xl p-4 text-sm outline-none resize-none"></textarea>
-            <div id="pw-field-container"><input type="password" id="new-room-pw" placeholder="삭제 및 수정 비밀번호" class="w-full bg-gray-100 rounded-xl p-4 text-sm outline-none"></div>
+            <div id="pw-field-container"><input type="password" id="new-room-pw" placeholder="삭제 및 수정 비밀번호" class="w-full bg-gray-50 rounded-xl p-4 text-sm outline-none"></div>
             <div id="options-list" class="space-y-2 pt-2"></div>
             <button id="btn-add-option" onclick="addOptionField()" class="text-[10px] text-indigo-500 font-bold uppercase p-2">+ Add Option</button>
             <button id="btn-submit-create" onclick="processCreate()" class="w-full btn-main py-4 rounded-xl font-bold text-lg clickable mt-4 shadow-md">게시글 올리기</button>
@@ -165,23 +166,26 @@
         const db = getDatabase(app);
         let currentRoomId = ""; let userIP = ""; let allRooms = []; let currentCategory = "전체";
         let isEditMode = false;
+        let myFingerprint = ""; // FingerprintJS를 통한 고유 기기 지문
 
-        let myUserId = localStorage.getItem('stay_user_id');
-        if(!myUserId) {
-            myUserId = 'u_' + Date.now() + Math.random().toString(36).substr(2, 9);
-            localStorage.setItem('stay_user_id', myUserId);
-        }
+        // --- FingerprintJS 로드 및 기기 지문 생성 ---
+        const setFingerprint = async () => {
+            const fp = await FingerprintJS.load();
+            const result = await fp.get();
+            myFingerprint = result.visitorId;
+        };
+        setFingerprint();
 
         fetch('https://api.ipify.org?format=json').then(r => r.json()).then(d => { userIP = d.ip.replace(/\./g, '_'); });
 
-        // --- 보완된 양방향 화살표 새로고침 로직 ---
+        // --- 실시간 반응형 양방향 화살표 새로고침 로직 ---
         let startY = 0;
         let isPulling = false;
         const ptrWrap = document.getElementById('ptr-wrap');
         const ptrIcon = document.getElementById('ptr-icon');
 
         window.addEventListener('touchstart', e => {
-            if (window.scrollY <= 5) { 
+            if (window.scrollY <= 5) {
                 startY = e.touches[0].pageY;
                 isPulling = true;
                 ptrIcon.style.transition = "none";
@@ -197,14 +201,12 @@
                 const moveY = Math.min(diff * 0.4, 70); 
                 ptrWrap.style.opacity = Math.min(diff / 100, 1);
                 
-                // [수정 포인트] 당기면 돌아가고 올리면 풀리는 정밀 회전 (최대 한 바퀴 360도)
-                // 당기는 거리(diff)가 180일 때 딱 360도가 되도록 설정
+                // [수정] 한 바퀴(360도) 내에서만 당기는 만큼 정교하게 회전
                 const rotation = Math.min(diff * 2, 360); 
                 ptrIcon.style.transform = `rotate(${rotation}deg)`;
                 
                 document.body.style.transform = `translateY(${moveY}px)`;
             } else if (diff <= 0) {
-                // 다시 위로 다 올리면 초기화
                 ptrWrap.style.opacity = 0;
                 document.body.style.transform = `translateY(0px)`;
             }
@@ -257,7 +259,7 @@
             } else if (hash === 'screen-create') {
                 openCreateScreen(true);
             } else {
-                switchScreen(state?.screen || 'screen-main', true);
+                switchScreen('screen-main', true);
             }
         };
 
@@ -350,7 +352,8 @@
                     return (getHotScore(room) > 0.1 || topHotIds.includes(id)) && votes > 0;
                 }).sort((a, b) => getHotScore(b[1]) - getHotScore(a[1]));
             } else if (currentCategory === "내가 만든 투표") {
-                displayRooms = displayRooms.filter(([id, room]) => room.creatorId === myUserId);
+                // [기존 LocalStorage 대체] 서버 데이터베이스의 creatorFingerprint와 내 기기 지문 비교
+                displayRooms = displayRooms.filter(([id, room]) => room.creatorFingerprint === myFingerprint);
             } else if (currentCategory !== "전체") {
                 displayRooms = displayRooms.filter(([id, room]) => (room.category || "일상/잡담") === currentCategory);
             }
@@ -419,7 +422,13 @@
                 const pw = document.getElementById('new-room-pw').value.trim();
                 if(!pw) return alert("비밀번호를 입력하세요.");
                 const id = 'r_' + Date.now();
-                set(ref(db, `rooms/${id}`), { title, pw, desc, category, poll: { options }, createdAt: Date.now(), creatorId: myUserId }).then(() => {
+                // [기기 고유 지문 저장] creatorFingerprint 항목 추가
+                set(ref(db, `rooms/${id}`), { 
+                    title, pw, desc, category, 
+                    poll: { options }, 
+                    createdAt: Date.now(), 
+                    creatorFingerprint: myFingerprint 
+                }).then(() => {
                     const finalUrl = window.location.protocol + "//" + window.location.host + window.location.pathname + '?id=' + id;
                     history.replaceState({ screen: 'screen-room', roomId: id }, "", finalUrl);
                     enterRoom(id, true, true);
