@@ -14,9 +14,19 @@
     <script src="https://cdn.tailwindcss.com"></script>
     <style>
         @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700;900&display=swap');
-        body { font-family: 'Inter', sans-serif; background-color: #ffffff; color: #111827; overflow-x: hidden; -webkit-tap-highlight-color: transparent; }
-        /* 당겨서 새로고침 스타일 보조 */
-        html { overscroll-behavior-y: contain; }
+        
+        /* 카톡 인앱 브라우저에서 튕김 방지 및 새로고침 최적화 */
+        body { 
+            font-family: 'Inter', sans-serif; 
+            background-color: #ffffff; 
+            color: #111827; 
+            overflow-x: hidden; 
+            -webkit-tap-highlight-color: transparent;
+            /* 화면 상단에서 당겼을 때 브라우저 기본 동작(종료/뒤로가기) 억제 */
+            overscroll-behavior-y: contain; 
+            position: relative;
+        }
+
         .glass { background: rgba(255, 255, 255, 0.98); backdrop-filter: blur(15px); border-bottom: 1px solid #f3f4f6; }
         .btn-main { background: linear-gradient(135deg, #4f46e5 0%, #7c3aed 100%); color: white; }
         div[id^="screen-"] { animation: fadeIn 0.2s ease-out; }
@@ -27,11 +37,22 @@
         #side-menu { position: fixed; top: 0; left: 0; width: 280px; height: 100%; background: white; z-index: 10001; transform: translateX(-100%); transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1); box-shadow: 20px 0 50px rgba(0,0,0,0.1); }
         #menu-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.5); z-index: 10000; display: none; }
         input, textarea { font-size: 16px !important; background-color: #f3f4f6 !important; }
+        
         /* 커스텀 모달 스타일 */
         #auth-modal { position: fixed; inset: 0; z-index: 20000; display: none; align-items: center; justify-content: center; background: rgba(0,0,0,0.6); padding: 20px; }
+
+        /* 새로고침 인디케이터 (당길 때 위에서 슬쩍 보이는 아이콘) */
+        #ptr-indicator {
+            position: absolute; top: -50px; left: 0; width: 100%; height: 50px;
+            display: flex; align-items: center; justify-content: center;
+            font-size: 12px; font-weight: 800; color: #4f46e5; transition: transform 0.1s;
+            z-index: 50; pointer-events: none;
+        }
     </style>
 </head>
 <body>
+
+    <div id="ptr-indicator">RELEASE TO REFRESH</div>
 
     <div id="auth-modal">
         <div class="bg-white w-full max-w-xs p-6 rounded-[2rem] shadow-2xl space-y-4">
@@ -137,7 +158,6 @@
         let currentRoomId = ""; let userIP = ""; let allRooms = []; let currentCategory = "전체";
         let isEditMode = false;
 
-        // 고유 사용자 ID 관리 (내가 만든 투표 유지용)
         let myUserId = localStorage.getItem('stay_user_id');
         if(!myUserId) {
             myUserId = 'u_' + Date.now() + Math.random().toString(36).substr(2, 9);
@@ -146,16 +166,59 @@
 
         fetch('https://api.ipify.org?format=json').then(r => r.json()).then(d => { userIP = d.ip.replace(/\./g, '_'); });
 
-        // 모바일 당겨서 새로고침 보조 로직
-        let touchStart = 0;
-        window.addEventListener('touchstart', e => { touchStart = e.touches[0].pageY; });
+        // --- 카카오톡 최적화 수동 당겨서 새로고침 로직 ---
+        let startY = 0;
+        let isPulling = false;
+        const indicator = document.getElementById('ptr-indicator');
+
+        window.addEventListener('touchstart', e => {
+            if (window.scrollY === 0) {
+                startY = e.touches[0].pageY;
+                isPulling = true;
+            }
+        }, { passive: true });
+
+        window.addEventListener('touchmove', e => {
+            if (!isPulling) return;
+            const currentY = e.touches[0].pageY;
+            const diff = currentY - startY;
+
+            if (diff > 0 && window.scrollY === 0) {
+                // 당기는 거리 제한 및 표시
+                const moveY = Math.min(diff * 0.4, 80); 
+                document.body.style.transform = `translateY(${moveY}px)`;
+                indicator.style.transform = `translateY(${moveY}px)`;
+                
+                if (diff > 150) {
+                    indicator.innerText = "RELEASE TO REFRESH";
+                } else {
+                    indicator.innerText = "PULL DOWN";
+                }
+            }
+        }, { passive: false });
+
         window.addEventListener('touchend', e => {
-            const touchEnd = e.changedTouches[0].pageY;
-            if (window.scrollY === 0 && touchEnd - touchStart > 150) {
+            if (!isPulling) return;
+            const diff = e.changedTouches[0].pageY - startY;
+            
+            document.body.style.transition = "transform 0.3s ease";
+            document.body.style.transform = "translateY(0)";
+            indicator.style.transition = "transform 0.3s ease";
+            indicator.style.transform = "translateY(0)";
+
+            if (diff > 150 && window.scrollY === 0) {
                 location.reload();
             }
+
+            // 초기화
+            setTimeout(() => {
+                document.body.style.transition = "";
+                indicator.style.transition = "";
+                isPulling = false;
+            }, 300);
         });
 
+        // 나머지 기존 기능들 보존
         window.switchScreen = (id, skipPush = false, roomId = null) => {
             document.querySelectorAll('div[id^="screen-"]').forEach(s => s.classList.add('hidden'));
             document.getElementById(id).classList.remove('hidden');
@@ -209,9 +272,7 @@
 
         window.copyLink = () => {
             const url = window.location.href;
-            navigator.clipboard.writeText(url).then(() => {
-                alert("투표 링크가 복사되었습니다!");
-            });
+            navigator.clipboard.writeText(url).then(() => { alert("투표 링크가 복사되었습니다!"); });
         };
 
         window.handleBack = () => {
@@ -257,14 +318,12 @@
             const query = document.getElementById('search-bar').value.toLowerCase().trim();
             listArea.innerHTML = "";
             document.getElementById('current-board-name').innerText = currentCategory;
-            
             const getHotScore = (room) => {
                 const votes = room.votedIPs ? Object.keys(room.votedIPs).length : 0;
                 const hours = (Date.now() - (room.createdAt || Date.now())) / 3600000;
                 return votes / Math.pow(hours + 2, 1.5);
             };
             const topHotIds = [...allRooms].sort((a, b) => getHotScore(b[1]) - getHotScore(a[1])).slice(0, 3).map(item => item[0]);
-            
             let displayRooms = [...allRooms];
             if (currentCategory === "실시간 핫") {
                 displayRooms = displayRooms.filter(([id, room]) => {
@@ -272,15 +331,12 @@
                     return (getHotScore(room) > 0.1 || topHotIds.includes(id)) && votes > 0;
                 }).sort((a, b) => getHotScore(b[1]) - getHotScore(a[1]));
             } else if (currentCategory === "내가 만든 투표") {
-                // DB의 creatorId와 현재 브라우저의 myUserId가 일치하는 것만 필터링
                 displayRooms = displayRooms.filter(([id, room]) => room.creatorId === myUserId);
             } else if (currentCategory !== "전체") {
                 displayRooms = displayRooms.filter(([id, room]) => (room.category || "일상/잡담") === currentCategory);
             }
-            
             const filtered = displayRooms.filter(([id, room]) => room.title.toLowerCase().includes(query));
             if (currentCategory !== "실시간 핫") filtered.sort((a,b) => (b[1].createdAt || 0) - (a[1].createdAt || 0));
-            
             filtered.forEach(([id, room]) => {
                 const votes = room.votedIPs ? Object.keys(room.votedIPs).length : 0;
                 const timeText = room.createdAt ? getTimeAgo(room.createdAt) : "오래전";
@@ -297,8 +353,6 @@
         window.enterRoom = (id, isFromCreate = false, skipPush = false) => {
             currentRoomId = id;
             switchScreen('screen-room', skipPush, id);
-            const backBtn = document.getElementById('btn-room-back');
-            backBtn.style.display = isFromCreate ? 'none' : 'block';
             onValue(ref(db, `rooms/${id}`), snap => {
                 const data = snap.val(); if(!data) return;
                 document.getElementById('room-display-name').innerText = data.title;
@@ -331,12 +385,7 @@
             let options = {}; 
             const inputs = document.querySelectorAll('.poll-input');
             let hasOption = false;
-            inputs.forEach(i => { 
-                if(i.value.trim()) {
-                    options[i.value.trim()] = parseInt(i.dataset.count || 0);
-                    hasOption = true;
-                }
-            });
+            inputs.forEach(i => { if(i.value.trim()) { options[i.value.trim()] = parseInt(i.dataset.count || 0); hasOption = true; } });
             if(!hasOption) return alert("최소 한 개의 선택지가 필요합니다.");
 
             if (isEditMode) {
@@ -351,13 +400,7 @@
                 const pw = document.getElementById('new-room-pw').value.trim();
                 if(!pw) return alert("비밀번호를 입력하세요.");
                 const id = 'r_' + Date.now();
-                // 생성 시 creatorId를 함께 저장하여 "내가 만든 투표" 버그 해결
-                set(ref(db, `rooms/${id}`), { 
-                    title, pw, desc, category, 
-                    poll: { options }, 
-                    createdAt: Date.now(),
-                    creatorId: myUserId 
-                }).then(() => {
+                set(ref(db, `rooms/${id}`), { title, pw, desc, category, poll: { options }, createdAt: Date.now(), creatorId: myUserId }).then(() => {
                     const finalUrl = window.location.protocol + "//" + window.location.host + window.location.pathname + '?id=' + id;
                     history.replaceState({ screen: 'screen-room', roomId: id }, "", finalUrl);
                     enterRoom(id, true, true);
@@ -365,31 +408,23 @@
             }
         };
 
-        // --- 수정/삭제 공용 커스텀 모달 로직 ---
         window.openAuthModal = (type) => {
             const modal = document.getElementById('auth-modal');
-            const title = document.getElementById('modal-title');
-            const desc = document.getElementById('modal-desc');
-            const submitBtn = document.getElementById('modal-submit-btn');
             const input = document.getElementById('modal-pw-input');
-            
             input.value = "";
             modal.style.display = 'flex';
-            
             if(type === 'edit') {
-                title.innerText = "수정 확인";
-                desc.innerText = "수정하시려면 비밀번호를 입력하세요.";
-                submitBtn.onclick = () => handleEditAuth();
+                document.getElementById('modal-title').innerText = "수정 확인";
+                document.getElementById('modal-desc').innerText = "수정하시려면 비밀번호를 입력하세요.";
+                document.getElementById('modal-submit-btn').onclick = () => handleEditAuth();
             } else {
-                title.innerText = "투표 삭제";
-                desc.innerText = "삭제하시려면 비밀번호를 입력하세요.";
-                submitBtn.onclick = () => handleDeleteAuth();
+                document.getElementById('modal-title').innerText = "투표 삭제";
+                document.getElementById('modal-desc').innerText = "삭제하시려면 비밀번호를 입력하세요.";
+                document.getElementById('modal-submit-btn').onclick = () => handleDeleteAuth();
             }
         };
 
-        window.closeAuthModal = () => {
-            document.getElementById('auth-modal').style.display = 'none';
-        };
+        window.closeAuthModal = () => { document.getElementById('auth-modal').style.display = 'none'; };
 
         const handleEditAuth = () => {
             const inputPw = document.getElementById('modal-pw-input').value.trim();
@@ -407,9 +442,7 @@
                     document.getElementById('pw-field-container').style.display = 'none';
                     const optionsList = document.getElementById('options-list');
                     optionsList.innerHTML = "";
-                    Object.entries(data.poll.options).forEach(([label, count]) => {
-                        addOptionField(label, count);
-                    });
+                    Object.entries(data.poll.options).forEach(([label, count]) => { addOptionField(label, count); });
                     document.getElementById('btn-submit-create').innerText = "내용 수정 완료";
                 } else alert("비밀번호가 틀렸습니다.");
             });
@@ -459,7 +492,6 @@
         }
 
         window.toggleMenu = () => { const m = document.getElementById('side-menu'); const o = document.getElementById('menu-overlay'); const open = m.style.transform === 'translateX(0px)'; m.style.transform = open ? 'translateX(-100%)' : 'translateX(0px)'; o.style.display = open ? 'none' : 'block'; };
-        
         window.addOptionField = (val = "", count = 0) => { 
             const list = document.getElementById('options-list'); 
             const container = document.createElement('div');
@@ -473,15 +505,9 @@
             const delBtn = document.createElement('button');
             delBtn.innerHTML = "✕";
             delBtn.className = "w-10 h-10 flex items-center justify-center bg-gray-100 text-gray-400 rounded-lg font-bold hover:bg-red-50 hover:text-red-500 transition-colors";
-            delBtn.onclick = () => {
-                if (list.children.length > 1) container.remove();
-                else alert("최소 1개의 선택지가 있어야 합니다.");
-            };
-            container.appendChild(input);
-            container.appendChild(delBtn);
-            list.appendChild(container); 
+            delBtn.onclick = () => { if (list.children.length > 1) container.remove(); else alert("최소 1개의 선택지가 있어야 합니다."); };
+            container.appendChild(input); container.appendChild(delBtn); list.appendChild(container); 
         };
-
         window.filterByCategory = (c) => { currentCategory = c; renderList(); toggleMenu(); };
     </script>
 </body>
