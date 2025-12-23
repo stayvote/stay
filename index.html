@@ -199,7 +199,6 @@
         };
 
         // --- UI & Navigation Logic (Same) ---
-
         window.switchScreen = (id, skipPush = false, roomId = null) => {
             document.querySelectorAll('div[id^="screen-"]').forEach(s => s.classList.add('hidden'));
             document.getElementById(id).classList.remove('hidden');
@@ -326,17 +325,17 @@
             if (currentCategory !== "실시간 핫") filtered.sort((a,b) => (b[1].createdAt || 0) - (a[1].createdAt || 0));
             
             filtered.forEach(([id, room]) => {
-                const votes = room.votedIPs ? Object.keys(room.votedIPs).length : 0;
+                // ⭐ 버그 수정: 투표 수 합계 계산 로직 변경 ⭐
+                const voteCounts = room.poll?.options ? Object.values(room.poll.options) : [];
+                const totalVotes = voteCounts.reduce((a, b) => a + b, 0);
                 const timeText = room.createdAt ? getTimeAgo(room.createdAt) : "오래전";
-                
-                // ⭐ 핫 배지 (PC/모바일 공통 고정) ⭐
-                const isHot = (getHotScore(room) > 0.1 || topHotIds.includes(id)) && votes > 0; 
+                const isHot = (getHotScore(room) > 0.1 || topHotIds.includes(id)) && totalVotes > 0; 
                 const hotBadge = isHot ? `<span class="ml-2 inline-block text-[9px] font-black text-red-500 italic tracking-tighter border border-red-200 px-1.5 py-0.5 rounded-md bg-red-50 animate-pulse uppercase">HOT</span>` : '';
                 
                 const div = document.createElement('div');
                 div.className = "vote-card bg-white p-6 rounded-[2rem] shadow-sm clickable hover:ring-2 hover:ring-indigo-500";
                 div.onclick = () => enterRoom(id, false);
-                div.innerHTML = `<div class="flex justify-between items-start mb-3"><span class="text-[9px] font-black text-indigo-500 uppercase tracking-widest">${room.category || '일상/잡담'}</span>${hotBadge}</div><div class="text-lg font-bold text-gray-900 mb-3 leading-tight min-h-[3rem]">${room.title}</div><div class="pt-4 border-t border-gray-50 flex justify-between items-center"><span class="text-[10px] text-gray-400 font-bold uppercase tracking-wide">${votes} Votes</span><span class="text-[10px] text-gray-300 font-bold uppercase">${timeText}</span></div>`;
+                div.innerHTML = `<div class="flex justify-between items-start mb-3"><span class="text-[9px] font-black text-indigo-500 uppercase tracking-widest">${room.category || '일상/잡담'}</span>${hotBadge}</div><div class="text-lg font-bold text-gray-900 mb-3 leading-tight min-h-[3rem]">${room.title}</div><div class="pt-4 border-t border-gray-50 flex justify-between items-center"><span class="text-[10px] text-gray-400 font-bold uppercase tracking-wide">${totalVotes} Votes</span><span class="text-[10px] text-gray-300 font-bold uppercase">${timeText}</span></div>`;
                 listArea.appendChild(div);
             });
         };
@@ -377,7 +376,7 @@
             let options = {}; 
             const inputs = document.querySelectorAll('.poll-input');
             let hasOption = false;
-            inputs.forEach(i => { if(i.value.trim()) { options[i.value.trim()] = parseInt(i.dataset.count || 0); hasOption = true; } });
+            inputs.forEach(i => { if(i.value.trim()) { options[i.value.trim()] = 0; hasOption = true; } });
             if(!hasOption) return alert("최소 한 개의 선택지가 필요합니다.");
 
             if (isEditMode) {
@@ -434,7 +433,8 @@
             });
         };
 
-        // --- ⭐ 토글 및 선택 이동 완벽 복구 (서버 트랜잭션 방식) ⭐ ---
+        // --- ⭐ 토글 및 투표 정합성 해결 핵심 로직 ⭐ ---
+        
         function renderPoll(poll, votedIPs) {
             const area = document.getElementById('poll-display-area'); area.innerHTML = "";
             const total = Object.values(poll.options).reduce((a, b) => a + b, 0);
@@ -449,7 +449,6 @@
                     if(!isSecureAccess()) return;
                     
                     const roomRef = ref(db, `rooms/${currentRoomId}`);
-                    // runTransaction 내부에서만 서버 데이터를 직접 수정하여 꼬임을 방지합니다.
                     runTransaction(roomRef, (roomData) => {
                         if (!roomData) return roomData;
                         if (!roomData.votedIPs) roomData.votedIPs = {};
@@ -457,27 +456,24 @@
                         
                         const currentChoice = roomData.votedIPs[myFingerprint];
 
-                        // 1. 이미 선택한 항목을 또 클릭 -> 투표 취소 (토글)
+                        // 1. 이미 선택한 것을 클릭 시 취소 (토글)
                         if (currentChoice === label) {
-                            roomData.poll.options[label] = Math.max(0, (roomData.poll.options[label] || 0) - 1);
-                            delete roomData.votedIPs[myFingerprint]; // 지문 정보 완전 삭제
+                            roomData.poll.options[label] = Math.max(0, roomData.poll.options[label] - 1);
+                            delete roomData.votedIPs[myFingerprint];
                         } 
-                        // 2. 다른 항목을 이미 선택한 상태 -> 선택지 이동
+                        // 2. 다른 선택지를 클릭 시 이동 (변경)
                         else if (currentChoice) {
-                            // 원래 선택했던 항목 수치 감소
-                            roomData.poll.options[currentChoice] = Math.max(0, (roomData.poll.options[currentChoice] || 0) - 1);
-                            // 새로 클릭한 항목 수치 증가
+                            roomData.poll.options[currentChoice] = Math.max(0, roomData.poll.options[currentChoice] - 1);
                             roomData.poll.options[label] = (roomData.poll.options[label] || 0) + 1;
-                            // 지문 정보 업데이트
                             roomData.votedIPs[myFingerprint] = label;
                         } 
-                        // 3. 처음 투표하는 경우 -> 일반 투표
+                        // 3. 새로 투표 시
                         else {
                             roomData.poll.options[label] = (roomData.poll.options[label] || 0) + 1;
                             roomData.votedIPs[myFingerprint] = label;
                         }
                         
-                        return roomData; // 최종 데이터를 서버에 저장
+                        return roomData;
                     });
                 };
                 
@@ -495,7 +491,7 @@
             const input = document.createElement('input'); 
             input.type = "text"; input.className = "poll-input flex-1 bg-gray-50 rounded-lg p-3 text-sm"; 
             input.placeholder = `선택지 ${list.children.length + 1}`; 
-            input.value = val; input.dataset.count = count;
+            input.value = val;
             const delBtn = document.createElement('button');
             delBtn.innerHTML = "✕"; delBtn.className = "w-10 h-10 flex items-center justify-center bg-gray-100 text-gray-400 rounded-lg font-bold";
             delBtn.onclick = () => { if (list.children.length > 1) container.remove(); };
