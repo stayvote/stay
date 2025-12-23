@@ -40,7 +40,7 @@
         
         #auth-modal { position: fixed; inset: 0; z-index: 20000; display: none; align-items: center; justify-content: center; background: rgba(0,0,0,0.6); padding: 20px; }
 
-        /* 새로고침 UI 스타일 */
+        /* 세련된 화살표 새로고침 UI */
         #ptr-wrap {
             position: absolute; top: -60px; left: 0; width: 100%; height: 60px;
             display: flex; align-items: center; justify-content: center;
@@ -50,7 +50,6 @@
             width: 26px; height: 26px;
             fill: none; stroke: #4f46e5; stroke-width: 2.5;
             stroke-linecap: round; stroke-linejoin: round;
-            /* transform 속성은 JS에서 실시간 제어하므로 여기선 기본만 설정 */
         }
     </style>
 </head>
@@ -175,7 +174,7 @@
 
         fetch('https://api.ipify.org?format=json').then(r => r.json()).then(d => { userIP = d.ip.replace(/\./g, '_'); });
 
-        // --- 부드러운 화살표 새로고침 로직 (회전 최적화) ---
+        // --- 실시간 반응형 화살표 새로고침 로직 ---
         let startY = 0;
         let isPulling = false;
         const ptrWrap = document.getElementById('ptr-wrap');
@@ -185,8 +184,8 @@
             if (window.scrollY <= 5) {
                 startY = e.touches[0].pageY;
                 isPulling = true;
-                // 초기 회전값 설정
                 ptrIcon.style.transition = "none"; 
+                ptrWrap.style.transition = "none";
             }
         }, { passive: true });
 
@@ -195,15 +194,24 @@
             const currentY = e.touches[0].pageY;
             const diff = currentY - startY;
 
+            // 당길 때와 다시 올릴 때 실시간으로 화살표 회전 제어
             if (diff > 0 && window.scrollY <= 5) {
                 const moveY = Math.min(diff * 0.4, 70); 
-                ptrWrap.style.opacity = Math.min(diff / 120, 1);
+                ptrWrap.style.opacity = Math.min(diff / 100, 1);
                 
-                // 손가락 당기는 만큼만 딱 회전 (최대 한 바퀴 정도)
-                const rotation = Math.min(diff * 2, 360); 
+                // 손가락 위치에 비례해 회전 (올리면 다시 풀림)
+                const rotation = (diff * 2); 
                 ptrIcon.style.transform = `rotate(${rotation}deg)`;
                 
                 document.body.style.transform = `translateY(${moveY}px)`;
+                
+                // 임계점 시각 효과
+                if (diff > 180) ptrIcon.style.stroke = "#10b981"; // 초록색으로 변경
+                else ptrIcon.style.stroke = "#4f46e5";
+            } else if (diff <= 0) {
+                // 완전히 위로 다시 올리면 초기화
+                ptrWrap.style.opacity = 0;
+                document.body.style.transform = `translateY(0px)`;
             }
         }, { passive: false });
 
@@ -217,6 +225,7 @@
             ptrWrap.style.transition = "opacity 0.3s, transform 0.3s";
             ptrWrap.style.opacity = "0";
 
+            // 충분히 당겼을 때만 새로고침 실행
             if (diff > 180 && window.scrollY <= 5) {
                 location.reload();
             }
@@ -224,6 +233,7 @@
             setTimeout(() => {
                 document.body.style.transition = "";
                 ptrWrap.style.transition = "";
+                ptrIcon.style.stroke = "#4f46e5";
                 isPulling = false;
             }, 400);
         });
