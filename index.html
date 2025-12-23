@@ -4,6 +4,8 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     
+    <meta name="naver-site-verification" content="b0edbc1bb2667fa54c19a898e12c1a94416dd9da" />
+    
     <meta property="og:title" content="STAY - 실시간 익명 투표">
     <meta property="og:description" content="지금 바로 투표를 만들고 사람들의 솔직한 의견을 들어보세요.">
     <meta property="og:type" content="website">
@@ -182,7 +184,7 @@
 
         fetch('https://api.ipify.org?format=json').then(r => r.json()).then(d => { userIP = d.ip.replace(/\./g, '_'); });
 
-        // --- 보안 검증 함수 (Honeypot 체크만 유지) ---
+        // --- 보안 검증 함수 (Honeypot 체크 유지) ---
         const isSecureAccess = () => {
             if (document.getElementById('hp_nickname').value !== "") return false; 
             return true;
