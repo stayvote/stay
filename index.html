@@ -40,7 +40,7 @@
         
         #auth-modal { position: fixed; inset: 0; z-index: 20000; display: none; align-items: center; justify-content: center; background: rgba(0,0,0,0.6); padding: 20px; }
 
-        /* 세련된 화살표 새로고침 UI */
+        /* 새로고침 UI 스타일 */
         #ptr-wrap {
             position: absolute; top: -60px; left: 0; width: 100%; height: 60px;
             display: flex; align-items: center; justify-content: center;
@@ -174,18 +174,17 @@
 
         fetch('https://api.ipify.org?format=json').then(r => r.json()).then(d => { userIP = d.ip.replace(/\./g, '_'); });
 
-        // --- 실시간 반응형 화살표 새로고침 로직 ---
+        // --- 보완된 양방향 화살표 새로고침 로직 ---
         let startY = 0;
         let isPulling = false;
         const ptrWrap = document.getElementById('ptr-wrap');
         const ptrIcon = document.getElementById('ptr-icon');
 
         window.addEventListener('touchstart', e => {
-            if (window.scrollY <= 5) {
+            if (window.scrollY <= 5) { 
                 startY = e.touches[0].pageY;
                 isPulling = true;
-                ptrIcon.style.transition = "none"; 
-                ptrWrap.style.transition = "none";
+                ptrIcon.style.transition = "none";
             }
         }, { passive: true });
 
@@ -194,22 +193,18 @@
             const currentY = e.touches[0].pageY;
             const diff = currentY - startY;
 
-            // 당길 때와 다시 올릴 때 실시간으로 화살표 회전 제어
             if (diff > 0 && window.scrollY <= 5) {
                 const moveY = Math.min(diff * 0.4, 70); 
                 ptrWrap.style.opacity = Math.min(diff / 100, 1);
                 
-                // 손가락 위치에 비례해 회전 (올리면 다시 풀림)
-                const rotation = (diff * 2); 
+                // [수정 포인트] 당기면 돌아가고 올리면 풀리는 정밀 회전 (최대 한 바퀴 360도)
+                // 당기는 거리(diff)가 180일 때 딱 360도가 되도록 설정
+                const rotation = Math.min(diff * 2, 360); 
                 ptrIcon.style.transform = `rotate(${rotation}deg)`;
                 
                 document.body.style.transform = `translateY(${moveY}px)`;
-                
-                // 임계점 시각 효과
-                if (diff > 180) ptrIcon.style.stroke = "#10b981"; // 초록색으로 변경
-                else ptrIcon.style.stroke = "#4f46e5";
             } else if (diff <= 0) {
-                // 완전히 위로 다시 올리면 초기화
+                // 다시 위로 다 올리면 초기화
                 ptrWrap.style.opacity = 0;
                 document.body.style.transform = `translateY(0px)`;
             }
@@ -221,11 +216,9 @@
             
             document.body.style.transition = "transform 0.4s cubic-bezier(0.16, 1, 0.3, 1)";
             document.body.style.transform = "translateY(0)";
-            
-            ptrWrap.style.transition = "opacity 0.3s, transform 0.3s";
+            ptrWrap.style.transition = "opacity 0.3s";
             ptrWrap.style.opacity = "0";
 
-            // 충분히 당겼을 때만 새로고침 실행
             if (diff > 180 && window.scrollY <= 5) {
                 location.reload();
             }
@@ -233,7 +226,6 @@
             setTimeout(() => {
                 document.body.style.transition = "";
                 ptrWrap.style.transition = "";
-                ptrIcon.style.stroke = "#4f46e5";
                 isPulling = false;
             }, 400);
         });
