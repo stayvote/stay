@@ -198,6 +198,7 @@
             return true;
         };
 
+        // --- UI & 네비게이션 (유지) ---
         window.switchScreen = (id, skipPush = false, roomId = null) => {
             document.querySelectorAll('div[id^="screen-"]').forEach(s => s.classList.add('hidden'));
             document.getElementById(id).classList.remove('hidden');
@@ -324,7 +325,7 @@
             if (currentCategory !== "실시간 핫") filtered.sort((a,b) => (b[1].createdAt || 0) - (a[1].createdAt || 0));
             
             filtered.forEach(([id, room]) => {
-                // ⭐ 목록 페이지 투표 합산 로직 고정 ⭐
+                // ⭐ 투표수 합계 로직 통일 ⭐
                 const totalVotes = room.poll?.options ? Object.values(room.poll.options).reduce((a, b) => Number(a) + Number(b), 0) : 0;
                 const timeText = room.createdAt ? getTimeAgo(room.createdAt) : "오래전";
                 const isHot = (getHotScore(room) > 0.1 || topHotIds.includes(id)) && totalVotes > 0; 
@@ -431,43 +432,42 @@
             });
         };
 
-        // --- ⭐ 투표 클릭 및 무한 증식 원천 봉쇄 로직 ⭐ ---
-        async function handleVote(label) {
+        // --- ⭐ 투표 기능 최종 전역 선언 수정 (무조건 작동) ⭐ ---
+        window.handleVote = async (label) => {
             if(!isSecureAccess()) return;
             
-            // 1. 서버 데이터를 즉시 1회 읽어옴 (비동기 병목 현상 제거)
             const roomRef = ref(db, `rooms/${currentRoomId}`);
             const snap = await get(roomRef);
             const roomData = snap.val();
             
             if (!roomData) return;
 
-            // 데이터 구조 깨져있을 경우 자동 방어
             if (!roomData.poll) roomData.poll = { options: {} };
             if (!roomData.poll.options) roomData.poll.options = {};
             if (!roomData.votedIPs) roomData.votedIPs = {};
 
             const currentChoice = roomData.votedIPs[myFingerprint];
 
-            // 2. 투표 로직 연산 (Number 강제 변환으로 무한 증식 차단)
+            // 1. 이미 누른걸 다시 누름 -> 취소 (토글)
             if (currentChoice === label) {
-                // 토글 취소
                 roomData.poll.options[label] = Math.max(0, (Number(roomData.poll.options[label]) || 0) - 1);
                 delete roomData.votedIPs[myFingerprint];
-            } else if (currentChoice) {
-                // 선택지 이동 (원래꺼 빼고 새거 더하기)
+            } 
+            // 2. 다른걸 누름 -> 원래 항목 1 빼고 새 항목 1 더함 (변경)
+            else if (currentChoice) {
                 roomData.poll.options[currentChoice] = Math.max(0, (Number(roomData.poll.options[currentChoice]) || 0) - 1);
                 roomData.poll.options[label] = (Number(roomData.poll.options[label]) || 0) + 1;
                 roomData.votedIPs[myFingerprint] = label;
-            } else {
-                // 신규 투표
+            } 
+            // 3. 처음 누름 -> 1 더함 (투표)
+            else {
                 roomData.poll.options[label] = (Number(roomData.poll.options[label]) || 0) + 1;
                 roomData.votedIPs[myFingerprint] = label;
             }
 
-            // 3. 서버에 최종 데이터 강제 덮어쓰기 (가장 확실한 클릭 반응)
+            // 트랜잭션 대신 무조건 덮어쓰기 (클릭 반응성 극대화)
             await set(roomRef, roomData);
-        }
+        };
 
         function renderPoll(poll, votedIPs) {
             const area = document.getElementById('poll-display-area'); area.innerHTML = "";
@@ -478,13 +478,10 @@
             Object.entries(options).forEach(([label, count]) => {
                 const per = total === 0 ? 0 : Math.round((Number(count) / total) * 100);
                 const div = document.createElement('div');
-                // 클릭 속도를 높이기 위해 id 부여 및 css 최적화
                 div.className = `relative h-16 rounded-2xl overflow-hidden bg-gray-50 border border-gray-100 mb-3 clickable ${myVote === label ? 'ring-2 ring-indigo-500 bg-white shadow-md' : ''}`;
                 
-                div.onclick = (e) => {
-                    e.preventDefault(); // 더블 클릭 방지
-                    handleVote(label);
-                };
+                // ⭐ 전역 window 함수 호출 방식으로 강제 변경 ⭐
+                div.setAttribute('onclick', `window.handleVote("${label}")`);
                 
                 const countDisplay = total > 0 ? `<div class="flex items-center space-x-2 text-[11px] font-bold"><span class="text-indigo-600">${per}%</span><span class="text-gray-200 font-light">|</span><span class="text-gray-400">${count} <span class="text-[9px] opacity-70">of</span> ${total}</span></div>` : `<span class="text-gray-300 text-[11px] font-bold">0%</span>`;
                 div.innerHTML = `<div class="vote-bar absolute bg-indigo-500 h-full opacity-[0.08]" style="width:${per}%"></div><div class="absolute inset-0 flex justify-between px-6 items-center font-bold"><span class="${myVote === label ? 'text-indigo-700' : 'text-gray-700'} text-sm">${label}</span>${countDisplay}</div>`;
