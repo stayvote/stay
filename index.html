@@ -72,7 +72,7 @@
 </head>
 <body>
 
-    <input type="text" id="hp_nickname" class="hp-field" tabindex="-1" autocomplete="off">
+    <input type="text" id="hp_nickname" class="hp-field" tabindex="-1" autocomplete="new-password" autocapitalize="off" autocorrect="off" spellcheck="false" inputmode="none" aria-hidden="true">
 
     <div id="ptr-wrap">
         <svg class="ptr-arrow" id="ptr-icon" viewBox="0 0 24 24">
@@ -185,19 +185,17 @@
         let currentRoomId = ""; let allRooms = []; let currentCategory = "전체";
         let isEditMode = false;
         
-        // ⭐ 지피티 패치 1: 상태 변수 추가
         let myFingerprint = ""; 
         let fpReady = false;
         let votingLock = false;
 
-        // ⭐ 지피티 패치 2: 핑거프린트 로딩 처리 및 Fallback 추가
+        // ⭐ 패치 2: 핑거프린트 로딩 강화 및 Fallback 추가 ⭐
         const setFingerprint = async () => {
             try {
                 const fp = await FingerprintJS.load();
                 const result = await fp.get();
                 myFingerprint = result.visitorId;
             } catch (e) {
-                // 식별 실패 시 로컬 스토리지 기반 임시 ID 사용 (Fallback)
                 myFingerprint = localStorage.getItem("stay_fallback_id") || ("fb_" + Math.random().toString(36).slice(2));
                 localStorage.setItem("stay_fallback_id", myFingerprint);
                 console.error("Fingerprint failed, using fallback", e);
@@ -207,12 +205,16 @@
         };
         setFingerprint();
 
+        // ⭐ 패치 3: 허니팟 자동완성 오염 강제 초기화 (디자인 영향 없음) ⭐
+        const hp = document.getElementById('hp_nickname');
+        setInterval(() => { if (hp && hp.value) hp.value = ""; }, 300);
+
         const isSecureAccess = () => {
             if (document.getElementById('hp_nickname').value !== "") return false; 
             return true;
         };
 
-        // --- UI & Navigation Logic (초기 버전 유지) ---
+        // --- UI & Navigation Logic (유지) ---
         window.switchScreen = (id, skipPush = false, roomId = null) => {
             document.querySelectorAll('div[id^="screen-"]').forEach(s => s.classList.add('hidden'));
             document.getElementById(id).classList.remove('hidden');
@@ -295,11 +297,10 @@
             });
         };
 
-        // ⭐ 지피티 패치 3: 트랜잭션 로직 안정화 및 클릭 락 적용 ⭐
-        
+        // ⭐ 패치 4: 안정화된 Try-Catch 트랜잭션 및 강제 언락 ⭐
         function renderPoll(poll, votedIPs) {
             const area = document.getElementById('poll-display-area'); area.innerHTML = "";
-            const options = poll.options || {};
+            const options = poll?.options || {}; // 옵셔널 체이닝 방어
             const total = Object.values(options).reduce((a, b) => Number(a) + Number(b), 0);
             const myVote = votedIPs[myFingerprint]; 
 
@@ -311,13 +312,10 @@
                 div.onclick = async () => {
                     if(!isSecureAccess()) return;
                     
-                    // 핑거프린트 로딩 체크
                     if (!fpReady || !myFingerprint) return alert("식별값을 불러오는 중입니다. 잠시만 기다려주세요.");
-
-                    // 클릭 잠금 체크 (연타 방지)
                     if (votingLock) return;
-                    votingLock = true;
 
+                    votingLock = true;
                     try {
                         const roomRef = ref(db, `rooms/${currentRoomId}`);
                         await runTransaction(roomRef, (roomData) => {
@@ -328,18 +326,15 @@
                             const currentChoice = roomData.votedIPs[myFingerprint];
 
                             if (currentChoice === label) {
-                                // 1. 토글 취소
                                 roomData.poll.options[label] = Math.max(0, (Number(roomData.poll.options[label]) || 0) - 1);
                                 delete roomData.votedIPs[myFingerprint];
                             } else if (currentChoice) {
-                                // 2. 선택 변경
                                 if (roomData.poll.options[currentChoice] !== undefined) {
                                     roomData.poll.options[currentChoice] = Math.max(0, (Number(roomData.poll.options[currentChoice]) || 0) - 1);
                                 }
                                 roomData.poll.options[label] = (Number(roomData.poll.options[label]) || 0) + 1;
                                 roomData.votedIPs[myFingerprint] = label;
                             } else {
-                                // 3. 신규 투표
                                 roomData.poll.options[label] = (Number(roomData.poll.options[label]) || 0) + 1;
                                 roomData.votedIPs[myFingerprint] = label;
                             }
@@ -349,8 +344,7 @@
                         alert("투표 처리 중 오류가 발생했습니다.");
                         console.error(e);
                     } finally {
-                        // 결과에 상관없이 무조건 잠금 해제
-                        votingLock = false;
+                        votingLock = false; // 어떤 경우에도 무조건 잠금 해제
                     }
                 };
                 
@@ -360,7 +354,7 @@
             });
         }
 
-        // --- 기타 로직 유지 ---
+        // --- 기타 공통 함수 유지 ---
         window.toggleMenu = () => { const m = document.getElementById('side-menu'); const o = document.getElementById('menu-overlay'); const open = m.style.transform === 'translateX(0px)'; m.style.transform = open ? 'translateX(-100%)' : 'translateX(0px)'; o.style.display = open ? 'none' : 'block'; };
         window.addOptionField = (val = "", count = 0) => { 
             const list = document.getElementById('options-list'); 
@@ -376,6 +370,13 @@
             container.appendChild(input); container.appendChild(delBtn); list.appendChild(container); 
         };
         window.filterByCategory = (c) => { currentCategory = c; renderList(); toggleMenu(); };
+        function getTimeAgo(ts) {
+            const sec = Math.floor((Date.now() - ts) / 1000);
+            if (sec < 60) return "방금 전";
+            if (sec < 3600) return Math.floor(sec/60) + "분 전";
+            if (sec < 86400) return Math.floor(sec/3600) + "시간 전";
+            return Math.floor(sec/86400) + "일 전";
+        }
     </script>
 </body>
 </html>
