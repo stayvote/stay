@@ -198,6 +198,8 @@
             return true;
         };
 
+        // --- UI & Navigation Logic (Same) ---
+
         window.switchScreen = (id, skipPush = false, roomId = null) => {
             document.querySelectorAll('div[id^="screen-"]').forEach(s => s.classList.add('hidden'));
             document.getElementById(id).classList.remove('hidden');
@@ -327,7 +329,7 @@
                 const votes = room.votedIPs ? Object.keys(room.votedIPs).length : 0;
                 const timeText = room.createdAt ? getTimeAgo(room.createdAt) : "오래전";
                 
-                // ⭐ 핫 배지 (PC/모바일 공통 적용) ⭐
+                // ⭐ 핫 배지 (PC/모바일 공통 고정) ⭐
                 const isHot = (getHotScore(room) > 0.1 || topHotIds.includes(id)) && votes > 0; 
                 const hotBadge = isHot ? `<span class="ml-2 inline-block text-[9px] font-black text-red-500 italic tracking-tighter border border-red-200 px-1.5 py-0.5 rounded-md bg-red-50 animate-pulse uppercase">HOT</span>` : '';
                 
@@ -432,7 +434,7 @@
             });
         };
 
-        // --- ⭐ 토글 및 선택 이동 완벽 복구 로직 ⭐ ---
+        // --- ⭐ 토글 및 선택 이동 완벽 복구 (서버 트랜잭션 방식) ⭐ ---
         function renderPoll(poll, votedIPs) {
             const area = document.getElementById('poll-display-area'); area.innerHTML = "";
             const total = Object.values(poll.options).reduce((a, b) => a + b, 0);
@@ -447,6 +449,7 @@
                     if(!isSecureAccess()) return;
                     
                     const roomRef = ref(db, `rooms/${currentRoomId}`);
+                    // runTransaction 내부에서만 서버 데이터를 직접 수정하여 꼬임을 방지합니다.
                     runTransaction(roomRef, (roomData) => {
                         if (!roomData) return roomData;
                         if (!roomData.votedIPs) roomData.votedIPs = {};
@@ -454,21 +457,27 @@
                         
                         const currentChoice = roomData.votedIPs[myFingerprint];
 
+                        // 1. 이미 선택한 항목을 또 클릭 -> 투표 취소 (토글)
                         if (currentChoice === label) {
-                            // 1. 토글 취소: 이미 선택한걸 또 누름
                             roomData.poll.options[label] = Math.max(0, (roomData.poll.options[label] || 0) - 1);
-                            roomData.votedIPs[myFingerprint] = null; // null로 설정하여 삭제
-                        } else if (currentChoice) {
-                            // 2. 선택 이동: 다른걸 선택한 상태에서 새걸 누름
+                            delete roomData.votedIPs[myFingerprint]; // 지문 정보 완전 삭제
+                        } 
+                        // 2. 다른 항목을 이미 선택한 상태 -> 선택지 이동
+                        else if (currentChoice) {
+                            // 원래 선택했던 항목 수치 감소
                             roomData.poll.options[currentChoice] = Math.max(0, (roomData.poll.options[currentChoice] || 0) - 1);
+                            // 새로 클릭한 항목 수치 증가
                             roomData.poll.options[label] = (roomData.poll.options[label] || 0) + 1;
+                            // 지문 정보 업데이트
                             roomData.votedIPs[myFingerprint] = label;
-                        } else {
-                            // 3. 신규 투표: 처음 투표함
+                        } 
+                        // 3. 처음 투표하는 경우 -> 일반 투표
+                        else {
                             roomData.poll.options[label] = (roomData.poll.options[label] || 0) + 1;
                             roomData.votedIPs[myFingerprint] = label;
                         }
-                        return roomData;
+                        
+                        return roomData; // 최종 데이터를 서버에 저장
                     });
                 };
                 
