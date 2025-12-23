@@ -185,17 +185,25 @@
         let currentRoomId = ""; let allRooms = []; let currentCategory = "전체";
         let isEditMode = false;
         
-        // ⭐ 패치 1: 상태 변수 추가
+        // ⭐ 지피티 패치 1: 상태 변수 추가
         let myFingerprint = ""; 
         let fpReady = false;
         let votingLock = false;
 
-        // ⭐ 패치 2: 핑거프린트 로딩 처리 개선
+        // ⭐ 지피티 패치 2: 핑거프린트 로딩 처리 및 Fallback 추가
         const setFingerprint = async () => {
-            const fp = await FingerprintJS.load();
-            const result = await fp.get();
-            myFingerprint = result.visitorId;
-            fpReady = true; // 로딩 완료 플래그
+            try {
+                const fp = await FingerprintJS.load();
+                const result = await fp.get();
+                myFingerprint = result.visitorId;
+            } catch (e) {
+                // 식별 실패 시 로컬 스토리지 기반 임시 ID 사용 (Fallback)
+                myFingerprint = localStorage.getItem("stay_fallback_id") || ("fb_" + Math.random().toString(36).slice(2));
+                localStorage.setItem("stay_fallback_id", myFingerprint);
+                console.error("Fingerprint failed, using fallback", e);
+            } finally {
+                fpReady = true;
+            }
         };
         setFingerprint();
 
@@ -204,7 +212,7 @@
             return true;
         };
 
-        // ... 기존 네비게이션 및 보조 함수 유지 ...
+        // --- UI & Navigation Logic (초기 버전 유지) ---
         window.switchScreen = (id, skipPush = false, roomId = null) => {
             document.querySelectorAll('div[id^="screen-"]').forEach(s => s.classList.add('hidden'));
             document.getElementById(id).classList.remove('hidden');
@@ -219,15 +227,6 @@
                 if(!skipPush) history.pushState({ screen: id }, "", stateUrl);
             }
             window.scrollTo(0,0);
-        };
-
-        window.onpopstate = (e) => {
-            const state = e.state;
-            const hash = window.location.hash.replace('#', '');
-            if (state?.screen === 'screen-room' && state.roomId) enterRoom(state.roomId, false, true);
-            else if (hash === 'screen-list') switchScreen('screen-list', true);
-            else if (hash === 'screen-create') openCreateScreen(true);
-            else switchScreen('screen-main', true);
         };
 
         const refreshData = () => {
@@ -268,7 +267,7 @@
             if (currentCategory !== "실시간 핫") filtered.sort((a,b) => (b[1].createdAt || 0) - (a[1].createdAt || 0));
             
             filtered.forEach(([id, room]) => {
-                const totalVotes = room.poll?.options ? Object.values(room.poll.options).reduce((a, b) => a + Number(b), 0) : 0;
+                const totalVotes = room.poll?.options ? Object.values(room.poll.options).reduce((a, b) => Number(a) + Number(b), 0) : 0;
                 const timeText = room.createdAt ? getTimeAgo(room.createdAt) : "오래전";
                 const isHot = (getHotScore(room) > 0.1 || topHotIds.includes(id)) && totalVotes > 0; 
                 const hotBadge = isHot ? `<span class="ml-2 inline-block text-[9px] font-black text-red-500 italic tracking-tighter border border-red-200 px-1.5 py-0.5 rounded-md bg-red-50 animate-pulse uppercase">HOT</span>` : '';
@@ -296,12 +295,12 @@
             });
         };
 
-        // ⭐ 패치 3: 락 기능이 포함된 핵심 투표 로직 ⭐
+        // ⭐ 지피티 패치 3: 트랜잭션 로직 안정화 및 클릭 락 적용 ⭐
         
         function renderPoll(poll, votedIPs) {
             const area = document.getElementById('poll-display-area'); area.innerHTML = "";
             const options = poll.options || {};
-            const total = Object.values(options).reduce((a, b) => a + Number(b), 0);
+            const total = Object.values(options).reduce((a, b) => Number(a) + Number(b), 0);
             const myVote = votedIPs[myFingerprint]; 
 
             Object.entries(options).forEach(([label, count]) => {
@@ -309,42 +308,50 @@
                 const div = document.createElement('div');
                 div.className = `relative h-16 rounded-2xl overflow-hidden bg-gray-50 border border-gray-100 mb-3 clickable ${myVote === label ? 'ring-2 ring-indigo-500 bg-white shadow-md' : ''}`;
                 
-                div.onclick = () => {
+                div.onclick = async () => {
                     if(!isSecureAccess()) return;
                     
-                    // 1) 지문 준비 체크
+                    // 핑거프린트 로딩 체크
                     if (!fpReady || !myFingerprint) return alert("식별값을 불러오는 중입니다. 잠시만 기다려주세요.");
 
-                    // 2) 클릭 락 체크 (연타 방지)
+                    // 클릭 잠금 체크 (연타 방지)
                     if (votingLock) return;
                     votingLock = true;
 
-                    const roomRef = ref(db, `rooms/${currentRoomId}`);
-                    runTransaction(roomRef, (roomData) => {
-                        if (!roomData) return roomData;
-                        if (!roomData.votedIPs) roomData.votedIPs = {};
-                        if (!roomData.poll || !roomData.poll.options) return roomData;
-                        
-                        const currentChoice = roomData.votedIPs[myFingerprint];
+                    try {
+                        const roomRef = ref(db, `rooms/${currentRoomId}`);
+                        await runTransaction(roomRef, (roomData) => {
+                            if (!roomData) return roomData;
+                            if (!roomData.votedIPs) roomData.votedIPs = {};
+                            if (!roomData.poll || !roomData.poll.options) return roomData;
+                            
+                            const currentChoice = roomData.votedIPs[myFingerprint];
 
-                        if (currentChoice === label) {
-                            roomData.poll.options[label] = Math.max(0, (Number(roomData.poll.options[label]) || 0) - 1);
-                            delete roomData.votedIPs[myFingerprint];
-                        } else if (currentChoice) {
-                            if (roomData.poll.options[currentChoice] !== undefined) {
-                                roomData.poll.options[currentChoice] = Math.max(0, (Number(roomData.poll.options[currentChoice]) || 0) - 1);
+                            if (currentChoice === label) {
+                                // 1. 토글 취소
+                                roomData.poll.options[label] = Math.max(0, (Number(roomData.poll.options[label]) || 0) - 1);
+                                delete roomData.votedIPs[myFingerprint];
+                            } else if (currentChoice) {
+                                // 2. 선택 변경
+                                if (roomData.poll.options[currentChoice] !== undefined) {
+                                    roomData.poll.options[currentChoice] = Math.max(0, (Number(roomData.poll.options[currentChoice]) || 0) - 1);
+                                }
+                                roomData.poll.options[label] = (Number(roomData.poll.options[label]) || 0) + 1;
+                                roomData.votedIPs[myFingerprint] = label;
+                            } else {
+                                // 3. 신규 투표
+                                roomData.poll.options[label] = (Number(roomData.poll.options[label]) || 0) + 1;
+                                roomData.votedIPs[myFingerprint] = label;
                             }
-                            roomData.poll.options[label] = (Number(roomData.poll.options[label]) || 0) + 1;
-                            roomData.votedIPs[myFingerprint] = label;
-                        } else {
-                            roomData.poll.options[label] = (Number(roomData.poll.options[label]) || 0) + 1;
-                            roomData.votedIPs[myFingerprint] = label;
-                        }
-                        return roomData;
-                    }).finally(() => {
-                        // 3) 트랜잭션 종료 후 락 해제
+                            return roomData;
+                        });
+                    } catch (e) {
+                        alert("투표 처리 중 오류가 발생했습니다.");
+                        console.error(e);
+                    } finally {
+                        // 결과에 상관없이 무조건 잠금 해제
                         votingLock = false;
-                    });
+                    }
                 };
                 
                 const countDisplay = total > 0 ? `<div class="flex items-center space-x-2 text-[11px] font-bold"><span class="text-indigo-600">${per}%</span><span class="text-gray-200 font-light">|</span><span class="text-gray-400">${count} <span class="text-[9px] opacity-70">of</span> ${total}</span></div>` : `<span class="text-gray-300 text-[11px] font-bold">0%</span>`;
@@ -353,7 +360,7 @@
             });
         }
 
-        // --- 기타 공통 함수 유지 ---
+        // --- 기타 로직 유지 ---
         window.toggleMenu = () => { const m = document.getElementById('side-menu'); const o = document.getElementById('menu-overlay'); const open = m.style.transform === 'translateX(0px)'; m.style.transform = open ? 'translateX(-100%)' : 'translateX(0px)'; o.style.display = open ? 'none' : 'block'; };
         window.addOptionField = (val = "", count = 0) => { 
             const list = document.getElementById('options-list'); 
@@ -364,7 +371,7 @@
             input.placeholder = `선택지 ${list.children.length + 1}`; 
             input.value = val;
             const delBtn = document.createElement('button');
-            delBtn.innerHTML = "✕"; delBtn.className = "w-10 h-10 flex items-center justify-center bg-gray-100 text-gray-400 rounded-lg font-bold";
+            delBtn.innerHTML = "✕"; delBtn.className = "w-10 h-10 flex items-center justify-center bg-gray-100 text-gray-400 rounded-lg font-bold hover:bg-red-50 hover:text-red-500 transition-colors";
             delBtn.onclick = () => { if (list.children.length > 1) container.remove(); };
             container.appendChild(input); container.appendChild(delBtn); list.appendChild(container); 
         };
