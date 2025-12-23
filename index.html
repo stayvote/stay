@@ -198,6 +198,7 @@
             return true;
         };
 
+        // --- UI & 네비게이션 (유지) ---
         window.switchScreen = (id, skipPush = false, roomId = null) => {
             document.querySelectorAll('div[id^="screen-"]').forEach(s => s.classList.add('hidden'));
             document.getElementById(id).classList.remove('hidden');
@@ -324,9 +325,9 @@
             if (currentCategory !== "실시간 핫") filtered.sort((a,b) => (b[1].createdAt || 0) - (a[1].createdAt || 0));
             
             filtered.forEach(([id, room]) => {
-                const totalVotes = room.poll?.options ? Object.values(room.poll.options).reduce((a, b) => a + Number(b), 0) : 0;
+                // ⭐ 투표수 합계 로직 통일 ⭐
+                const totalVotes = room.poll?.options ? Object.values(room.poll.options).reduce((a, b) => Number(a) + Number(b), 0) : 0;
                 const timeText = room.createdAt ? getTimeAgo(room.createdAt) : "오래전";
-                
                 const isHot = (getHotScore(room) > 0.1 || topHotIds.includes(id)) && totalVotes > 0; 
                 const hotBadge = isHot ? `<span class="ml-2 inline-block text-[9px] font-black text-red-500 italic tracking-tighter border border-red-200 px-1.5 py-0.5 rounded-md bg-red-50 animate-pulse uppercase">HOT</span>` : '';
                 
@@ -431,8 +432,7 @@
             });
         };
 
-        // --- ⭐ 투표 기능 완벽 수정 로직 ⭐ ---
-        
+        // --- ⭐ 투표 기능 완벽 수정 (토글 및 클릭 불능 해결) ⭐ ---
         function renderPoll(poll, votedIPs) {
             const area = document.getElementById('poll-display-area'); area.innerHTML = "";
             const options = poll.options || {};
@@ -451,8 +451,10 @@
                     runTransaction(roomRef, (roomData) => {
                         if (!roomData) return roomData;
                         
+                        // 데이터 정규화: 없을 경우 기본값 생성
                         if (!roomData.votedIPs) roomData.votedIPs = {};
-                        if (!roomData.poll || !roomData.poll.options) return roomData;
+                        if (!roomData.poll) roomData.poll = { options: {} };
+                        if (!roomData.poll.options) roomData.poll.options = {};
                         
                         const currentChoice = roomData.votedIPs[myFingerprint];
 
