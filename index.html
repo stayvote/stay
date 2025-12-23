@@ -15,14 +15,12 @@
     <style>
         @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700;900&display=swap');
         
-        /* 카톡 인앱 브라우저에서 튕김 방지 및 새로고침 최적화 */
         body { 
             font-family: 'Inter', sans-serif; 
             background-color: #ffffff; 
             color: #111827; 
             overflow-x: hidden; 
             -webkit-tap-highlight-color: transparent;
-            /* 화면 상단에서 당겼을 때 브라우저 기본 동작(종료/뒤로가기) 억제 */
             overscroll-behavior-y: contain; 
             position: relative;
         }
@@ -38,10 +36,8 @@
         #menu-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.5); z-index: 10000; display: none; }
         input, textarea { font-size: 16px !important; background-color: #f3f4f6 !important; }
         
-        /* 커스텀 모달 스타일 */
         #auth-modal { position: fixed; inset: 0; z-index: 20000; display: none; align-items: center; justify-content: center; background: rgba(0,0,0,0.6); padding: 20px; }
 
-        /* 새로고침 인디케이터 (당길 때 위에서 슬쩍 보이는 아이콘) */
         #ptr-indicator {
             position: absolute; top: -50px; left: 0; width: 100%; height: 50px;
             display: flex; align-items: center; justify-content: center;
@@ -166,7 +162,6 @@
 
         fetch('https://api.ipify.org?format=json').then(r => r.json()).then(d => { userIP = d.ip.replace(/\./g, '_'); });
 
-        // --- 카카오톡 최적화 수동 당겨서 새로고침 로직 ---
         let startY = 0;
         let isPulling = false;
         const indicator = document.getElementById('ptr-indicator');
@@ -184,7 +179,6 @@
             const diff = currentY - startY;
 
             if (diff > 0 && window.scrollY === 0) {
-                // 당기는 거리 제한 및 표시
                 const moveY = Math.min(diff * 0.4, 80); 
                 document.body.style.transform = `translateY(${moveY}px)`;
                 indicator.style.transform = `translateY(${moveY}px)`;
@@ -210,7 +204,6 @@
                 location.reload();
             }
 
-            // 초기화
             setTimeout(() => {
                 document.body.style.transition = "";
                 indicator.style.transition = "";
@@ -218,10 +211,11 @@
             }, 300);
         });
 
-        // 나머지 기존 기능들 보존
         window.switchScreen = (id, skipPush = false, roomId = null) => {
             document.querySelectorAll('div[id^="screen-"]').forEach(s => s.classList.add('hidden'));
             document.getElementById(id).classList.remove('hidden');
+            
+            // 새로고침 유지를 위해 주소창에 화면 상태 저장
             if (id === 'screen-room' && roomId) {
                 const newUrl = window.location.protocol + "//" + window.location.host + window.location.pathname + '?id=' + roomId;
                 if(!skipPush) history.pushState({ screen: id, roomId: roomId }, "", newUrl);
@@ -229,7 +223,9 @@
                 const mainUrl = window.location.protocol + "//" + window.location.host + window.location.pathname;
                 if(!skipPush) history.pushState({ screen: id }, "", mainUrl);
             } else {
-                if(!skipPush) history.pushState({ screen: id }, "");
+                // 목록이나 생성 화면의 경우 Hash 사용
+                const stateUrl = window.location.protocol + "//" + window.location.host + window.location.pathname + (id === 'screen-main' ? '' : '#' + id);
+                if(!skipPush) history.pushState({ screen: id }, "", stateUrl);
             }
             window.scrollTo(0,0);
         };
@@ -243,7 +239,27 @@
             }
         };
 
-        window.openCreateScreen = () => {
+        // 새로고침 시 원래 있던 화면을 찾아가는 로직
+        window.addEventListener('load', () => {
+            const params = new URLSearchParams(window.location.search);
+            const id = params.get('id');
+            const hash = window.location.hash.replace('#', '');
+            
+            const checkData = setInterval(() => {
+                if (allRooms.length > 0 || (hash === 'screen-create')) {
+                    if (id) {
+                        enterRoom(id, false, true);
+                    } else if (hash === 'screen-list') {
+                        switchScreen('screen-list', true);
+                    } else if (hash === 'screen-create') {
+                        openCreateScreen(true);
+                    }
+                    clearInterval(checkData);
+                }
+            }, 100);
+        });
+
+        window.openCreateScreen = (skipHistory = false) => {
             isEditMode = false;
             document.getElementById('create-title').innerText = "New Post";
             document.getElementById('new-room-name').value = "";
@@ -254,21 +270,8 @@
             addOptionField(); addOptionField();
             document.getElementById('btn-add-option').style.display = 'block';
             document.getElementById('btn-submit-create').innerText = "게시글 올리기";
-            switchScreen('screen-create');
+            switchScreen('screen-create', skipHistory);
         };
-
-        window.addEventListener('load', () => {
-            const params = new URLSearchParams(window.location.search);
-            const id = params.get('id');
-            if (id) {
-                const checkData = setInterval(() => {
-                    if (allRooms.length > 0) {
-                        enterRoom(id, false);
-                        clearInterval(checkData);
-                    }
-                }, 100);
-            }
-        });
 
         window.copyLink = () => {
             const url = window.location.href;
