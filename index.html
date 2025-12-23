@@ -198,7 +198,6 @@
             return true;
         };
 
-        // --- UI & Navigation Logic (Same) ---
         window.switchScreen = (id, skipPush = false, roomId = null) => {
             document.querySelectorAll('div[id^="screen-"]').forEach(s => s.classList.add('hidden'));
             document.getElementById(id).classList.remove('hidden');
@@ -302,9 +301,9 @@
             document.getElementById('current-board-name').innerText = currentCategory;
             
             const getHotScore = (room) => {
-                const votes = room.votedIPs ? Object.keys(room.votedIPs).length : 0;
+                const total = room.poll?.options ? Object.values(room.poll.options).reduce((a, b) => a + b, 0) : 0;
                 const hours = (Date.now() - (room.createdAt || Date.now())) / 3600000;
-                return votes / Math.pow(hours + 2, 1.5);
+                return total / Math.pow(hours + 2, 1.5);
             };
             
             const topHotIds = [...allRooms].sort((a, b) => getHotScore(b[1]) - getHotScore(a[1])).slice(0, 3).map(item => item[0]);
@@ -312,8 +311,8 @@
             let displayRooms = [...allRooms];
             if (currentCategory === "실시간 핫") {
                 displayRooms = displayRooms.filter(([id, room]) => {
-                    const votes = room.votedIPs ? Object.keys(room.votedIPs).length : 0;
-                    return (getHotScore(room) > 0.1 || topHotIds.includes(id)) && votes > 0;
+                    const total = room.poll?.options ? Object.values(room.poll.options).reduce((a, b) => a + b, 0) : 0;
+                    return (getHotScore(room) > 0.1 || topHotIds.includes(id)) && total > 0;
                 }).sort((a, b) => getHotScore(b[1]) - getHotScore(a[1]));
             } else if (currentCategory === "내가 만든 투표") {
                 displayRooms = displayRooms.filter(([id, room]) => room.creatorFingerprint === myFingerprint);
@@ -325,10 +324,10 @@
             if (currentCategory !== "실시간 핫") filtered.sort((a,b) => (b[1].createdAt || 0) - (a[1].createdAt || 0));
             
             filtered.forEach(([id, room]) => {
-                // ⭐ 버그 수정: 투표 수 합계 계산 로직 변경 ⭐
-                const voteCounts = room.poll?.options ? Object.values(room.poll.options) : [];
-                const totalVotes = voteCounts.reduce((a, b) => a + b, 0);
+                // ⭐ 버그 수정: 상세화면과 동일한 전체 합산 투표수 계산 ⭐
+                const totalVotes = room.poll?.options ? Object.values(room.poll.options).reduce((a, b) => a + Number(b), 0) : 0;
                 const timeText = room.createdAt ? getTimeAgo(room.createdAt) : "오래전";
+                
                 const isHot = (getHotScore(room) > 0.1 || topHotIds.includes(id)) && totalVotes > 0; 
                 const hotBadge = isHot ? `<span class="ml-2 inline-block text-[9px] font-black text-red-500 italic tracking-tighter border border-red-200 px-1.5 py-0.5 rounded-md bg-red-50 animate-pulse uppercase">HOT</span>` : '';
                 
@@ -433,11 +432,10 @@
             });
         };
 
-        // --- ⭐ 토글 및 투표 정합성 해결 핵심 로직 ⭐ ---
-        
-        function renderPoll(poll, votedIPs) {
+        // --- ⭐ 무한 증식 해결 및 토글 완벽 복구 ⭐ ---
+                function renderPoll(poll, votedIPs) {
             const area = document.getElementById('poll-display-area'); area.innerHTML = "";
-            const total = Object.values(poll.options).reduce((a, b) => a + b, 0);
+            const total = Object.values(poll.options).reduce((a, b) => a + Number(b), 0);
             const myVote = votedIPs[myFingerprint]; 
 
             Object.entries(poll.options).forEach(([label, count]) => {
@@ -456,23 +454,22 @@
                         
                         const currentChoice = roomData.votedIPs[myFingerprint];
 
-                        // 1. 이미 선택한 것을 클릭 시 취소 (토글)
+                        // 1. 이미 투표한 걸 다시 누름 -> 취소 (토글)
                         if (currentChoice === label) {
-                            roomData.poll.options[label] = Math.max(0, roomData.poll.options[label] - 1);
+                            roomData.poll.options[label] = Math.max(0, (Number(roomData.poll.options[label]) || 0) - 1);
                             delete roomData.votedIPs[myFingerprint];
                         } 
-                        // 2. 다른 선택지를 클릭 시 이동 (변경)
+                        // 2. 다른 선택지를 누름 -> 이동
                         else if (currentChoice) {
-                            roomData.poll.options[currentChoice] = Math.max(0, roomData.poll.options[currentChoice] - 1);
-                            roomData.poll.options[label] = (roomData.poll.options[label] || 0) + 1;
+                            roomData.poll.options[currentChoice] = Math.max(0, (Number(roomData.poll.options[currentChoice]) || 0) - 1);
+                            roomData.poll.options[label] = (Number(roomData.poll.options[label]) || 0) + 1;
                             roomData.votedIPs[myFingerprint] = label;
                         } 
-                        // 3. 새로 투표 시
+                        // 3. 신규 투표
                         else {
-                            roomData.poll.options[label] = (roomData.poll.options[label] || 0) + 1;
+                            roomData.poll.options[label] = (Number(roomData.poll.options[label]) || 0) + 1;
                             roomData.votedIPs[myFingerprint] = label;
                         }
-                        
                         return roomData;
                     });
                 };
