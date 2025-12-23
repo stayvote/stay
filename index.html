@@ -24,7 +24,6 @@
             overscroll-behavior-y: contain; 
             position: relative;
             width: 100%;
-            /* 모바일에서 당길 때 배경이 보이도록 설정 */
             transform-origin: top;
         }
 
@@ -41,17 +40,17 @@
         
         #auth-modal { position: fixed; inset: 0; z-index: 20000; display: none; align-items: center; justify-content: center; background: rgba(0,0,0,0.6); padding: 20px; }
 
-        /* 세련된 화살표 새로고침 UI */
+        /* 새로고침 UI 스타일 */
         #ptr-wrap {
             position: absolute; top: -60px; left: 0; width: 100%; height: 60px;
             display: flex; align-items: center; justify-content: center;
             z-index: 1; pointer-events: none; opacity: 0;
         }
         .ptr-arrow {
-            width: 24px; height: 24px;
-            fill: none; stroke: #4f46e5; stroke-width: 3;
+            width: 26px; height: 26px;
+            fill: none; stroke: #4f46e5; stroke-width: 2.5;
             stroke-linecap: round; stroke-linejoin: round;
-            transition: transform 0.1s linear;
+            /* transform 속성은 JS에서 실시간 제어하므로 여기선 기본만 설정 */
         }
     </style>
 </head>
@@ -176,16 +175,18 @@
 
         fetch('https://api.ipify.org?format=json').then(r => r.json()).then(d => { userIP = d.ip.replace(/\./g, '_'); });
 
-        // --- 부드러운 화살표 새로고침 로직 (흰 배경 노출 영역) ---
+        // --- 부드러운 화살표 새로고침 로직 (회전 최적화) ---
         let startY = 0;
         let isPulling = false;
         const ptrWrap = document.getElementById('ptr-wrap');
         const ptrIcon = document.getElementById('ptr-icon');
 
         window.addEventListener('touchstart', e => {
-            if (window.scrollY <= 5) { // 스크롤이 맨 위일 때만 작동
+            if (window.scrollY <= 5) {
                 startY = e.touches[0].pageY;
                 isPulling = true;
+                // 초기 회전값 설정
+                ptrIcon.style.transition = "none"; 
             }
         }, { passive: true });
 
@@ -195,9 +196,13 @@
             const diff = currentY - startY;
 
             if (diff > 0 && window.scrollY <= 5) {
-                const moveY = Math.min(diff * 0.4, 70); // 너무 많이 내려가지 않도록 제한
-                ptrWrap.style.opacity = Math.min(diff / 100, 1);
-                ptrIcon.style.transform = `rotate(${diff * 2.5}deg)`; // 당기는 정도에 따라 화살표 회전
+                const moveY = Math.min(diff * 0.4, 70); 
+                ptrWrap.style.opacity = Math.min(diff / 120, 1);
+                
+                // 손가락 당기는 만큼만 딱 회전 (최대 한 바퀴 정도)
+                const rotation = Math.min(diff * 2, 360); 
+                ptrIcon.style.transform = `rotate(${rotation}deg)`;
+                
                 document.body.style.transform = `translateY(${moveY}px)`;
             }
         }, { passive: false });
@@ -208,7 +213,8 @@
             
             document.body.style.transition = "transform 0.4s cubic-bezier(0.16, 1, 0.3, 1)";
             document.body.style.transform = "translateY(0)";
-            ptrWrap.style.transition = "opacity 0.3s";
+            
+            ptrWrap.style.transition = "opacity 0.3s, transform 0.3s";
             ptrWrap.style.opacity = "0";
 
             if (diff > 180 && window.scrollY <= 5) {
@@ -222,11 +228,10 @@
             }, 400);
         });
 
-        // --- 화면 유지 및 스위칭 로직 (기존 기능 100% 보존) ---
+        // --- 화면 유지 및 스위칭 로직 ---
         window.switchScreen = (id, skipPush = false, roomId = null) => {
             document.querySelectorAll('div[id^="screen-"]').forEach(s => s.classList.add('hidden'));
             document.getElementById(id).classList.remove('hidden');
-            
             if (id === 'screen-room' && roomId) {
                 const newUrl = window.location.protocol + "//" + window.location.host + window.location.pathname + '?id=' + roomId;
                 if(!skipPush) history.pushState({ screen: id, roomId: roomId }, "", newUrl);
@@ -258,16 +263,11 @@
             const params = new URLSearchParams(window.location.search);
             const id = params.get('id');
             const hash = window.location.hash.replace('#', '');
-            
             const checkData = setInterval(() => {
                 if (allRooms.length > 0 || hash === 'screen-create') {
-                    if (id) {
-                        enterRoom(id, false, true);
-                    } else if (hash === 'screen-list') {
-                        switchScreen('screen-list', true);
-                    } else if (hash === 'screen-create') {
-                        openCreateScreen(true);
-                    }
+                    if (id) enterRoom(id, false, true);
+                    else if (hash === 'screen-list') switchScreen('screen-list', true);
+                    else if (hash === 'screen-create') openCreateScreen(true);
                     clearInterval(checkData);
                 }
             }, 50);
