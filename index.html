@@ -5,7 +5,6 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     
     <meta name="naver-site-verification" content="b0edbc1bb2667fa54c19a898e12c1a94416dd9da" />
-    
     <meta name="google-site-verification" content="m-4-AfhCJa3w-XO85XrOn0EzN7SshBdjbR9KkLHae2c" />
     
     <meta property="og:title" content="STAY - 실시간 익명 투표">
@@ -36,8 +35,21 @@
         .btn-main { background: linear-gradient(135deg, #4f46e5 0%, #7c3aed 100%); color: white; }
         div[id^="screen-"] { animation: fadeIn 0.2s ease-out; }
         @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
-        .clickable { cursor: pointer; transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1); }
-        .clickable:active { transform: scale(0.96); opacity: 0.8; }
+
+        /* 카드 그리드 전용 애니메이션 및 스타일 */
+        .vote-card { 
+            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1); 
+            border: 1px solid #f3f4f6;
+        }
+        @media (hover: hover) {
+            .vote-card:hover { 
+                transform: translateY(-8px); 
+                box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.08);
+                border-color: #6366f1;
+            }
+        }
+        .vote-card:active { transform: scale(0.97); }
+
         .vote-bar { transition: width 0.8s cubic-bezier(0.34, 1.56, 0.64, 1); }
         #side-menu { position: fixed; top: 0; left: 0; width: 280px; height: 100%; background: white; z-index: 10001; transform: translateX(-100%); transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1); box-shadow: 20px 0 50px rgba(0,0,0,0.1); }
         #menu-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.5); z-index: 10000; display: none; }
@@ -130,7 +142,7 @@
             <button onclick="switchScreen('screen-main')" class="text-gray-400 font-bold text-[10px]">EXIT</button>
         </div>
         <div class="p-4"><input type="text" id="search-bar" oninput="renderList()" placeholder="제목 검색..." class="w-full bg-gray-100 rounded-xl py-4 px-5 text-sm outline-none"></div>
-        <div id="room-list" class="p-4 space-y-4 bg-gray-50 min-h-screen"></div>
+        <div id="room-list" class="p-4 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 bg-gray-50 min-h-screen content-start"></div>
     </div>
 
     <div id="screen-room" class="hidden min-h-screen bg-white">
@@ -360,9 +372,10 @@
                 const isHot = (getHotScore(room) > 0.1 || topHotIds.includes(id)) && votes > 0; 
                 const hotBadge = isHot ? `<span class="ml-2 text-[9px] font-black text-red-500 italic tracking-tighter border border-red-200 px-1.5 py-0.5 rounded-md bg-red-50 animate-pulse uppercase">HOT</span>` : '';
                 const div = document.createElement('div');
-                div.className = "bg-white p-6 rounded-[1.8rem] shadow-sm border border-gray-100 clickable";
+                // 호버 효과를 위한 디자인 클래스 추가
+                div.className = "vote-card bg-white p-6 rounded-[2rem] shadow-sm clickable hover:ring-2 hover:ring-indigo-500";
                 div.onclick = () => enterRoom(id, false);
-                div.innerHTML = `<div class="flex justify-between items-start mb-2"><span class="text-[9px] font-black text-indigo-500 uppercase">${room.category || '일상/잡담'}</span>${hotBadge}</div><div class="text-lg font-bold text-gray-900 mb-2 leading-tight">${room.title}</div><div class="text-[10px] text-gray-400 font-bold uppercase tracking-wide">${votes} Votes • ${timeText}</div>`;
+                div.innerHTML = `<div class="flex justify-between items-start mb-3"><span class="text-[9px] font-black text-indigo-500 uppercase tracking-widest">${room.category || '일상/잡담'}</span>${hotBadge}</div><div class="text-lg font-bold text-gray-900 mb-3 leading-tight min-h-[3rem]">${room.title}</div><div class="pt-4 border-t border-gray-50 flex justify-between items-center"><span class="text-[10px] text-gray-400 font-bold uppercase tracking-wide">${votes} Votes</span><span class="text-[10px] text-gray-300 font-bold uppercase">${timeText}</span></div>`;
                 listArea.appendChild(div);
             });
         };
@@ -387,7 +400,7 @@
             const recs = allRooms.filter(([id]) => id !== excludeId).sort(() => 0.5 - Math.random()).slice(0, 3);
             recs.forEach(([id, room]) => {
                 const d = document.createElement('div');
-                d.className = "bg-gray-50 p-5 rounded-2xl clickable border border-gray-100";
+                d.className = "bg-gray-50 p-5 rounded-2xl clickable border border-gray-100 hover:bg-white hover:ring-1 hover:ring-indigo-200 transition-all";
                 d.onclick = (e) => { e.stopPropagation(); enterRoom(id, false); };
                 d.innerHTML = `<div class="text-[8px] font-black text-indigo-400 uppercase mb-1">${room.category || '일상/잡담'}</div><div class="text-sm font-bold text-gray-800 leading-snug">${room.title}</div>`;
                 area.appendChild(d);
