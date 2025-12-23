@@ -372,7 +372,6 @@
                 const isHot = (getHotScore(room) > 0.1 || topHotIds.includes(id)) && votes > 0; 
                 const hotBadge = isHot ? `<span class="ml-2 text-[9px] font-black text-red-500 italic tracking-tighter border border-red-200 px-1.5 py-0.5 rounded-md bg-red-50 animate-pulse uppercase">HOT</span>` : '';
                 const div = document.createElement('div');
-                // 호버 효과를 위한 디자인 클래스 추가
                 div.className = "vote-card bg-white p-6 rounded-[2rem] shadow-sm clickable hover:ring-2 hover:ring-indigo-500";
                 div.onclick = () => enterRoom(id, false);
                 div.innerHTML = `<div class="flex justify-between items-start mb-3"><span class="text-[9px] font-black text-indigo-500 uppercase tracking-widest">${room.category || '일상/잡담'}</span>${hotBadge}</div><div class="text-lg font-bold text-gray-900 mb-3 leading-tight min-h-[3rem]">${room.title}</div><div class="pt-4 border-t border-gray-50 flex justify-between items-center"><span class="text-[10px] text-gray-400 font-bold uppercase tracking-wide">${votes} Votes</span><span class="text-[10px] text-gray-300 font-bold uppercase">${timeText}</span></div>`;
@@ -491,24 +490,31 @@
             const area = document.getElementById('poll-display-area'); area.innerHTML = "";
             const total = Object.values(poll.options).reduce((a, b) => a + b, 0);
             const myVote = votedIPs[myFingerprint]; 
+
             Object.entries(poll.options).forEach(([label, count]) => {
                 const per = total === 0 ? 0 : Math.round((count / total) * 100);
                 const div = document.createElement('div');
                 div.className = `relative h-16 rounded-2xl overflow-hidden bg-gray-50 border border-gray-100 mb-3 clickable ${myVote === label ? 'ring-2 ring-indigo-500 bg-white shadow-md' : ''}`;
+                
                 div.onclick = () => {
                     if(!isSecureAccess()) return alert("비정상적인 활동이 감지되었습니다.");
+                    
                     if (myVote === label) {
+                        // 이미 고른 것 클릭 시 취소 (토글링)
                         runTransaction(ref(db, `rooms/${currentRoomId}/poll/options/${label}`), c => (c > 0 ? c - 1 : 0));
                         remove(ref(db, `rooms/${currentRoomId}/votedIPs/${myFingerprint}`));
                     } else if (myVote) {
+                        // 다른 것을 고른 상태에서 새로운 것 클릭 시 기존 취소 후 새 반영
                         runTransaction(ref(db, `rooms/${currentRoomId}/poll/options/${myVote}`), c => (c > 0 ? c - 1 : 0));
                         runTransaction(ref(db, `rooms/${currentRoomId}/poll/options/${label}`), c => (c || 0) + 1);
                         set(ref(db, `rooms/${currentRoomId}/votedIPs/${myFingerprint}`), label);
                     } else {
+                        // 생전 처음 투표하는 경우
                         runTransaction(ref(db, `rooms/${currentRoomId}/poll/options/${label}`), c => (c || 0) + 1);
                         set(ref(db, `rooms/${currentRoomId}/votedIPs/${myFingerprint}`), label);
                     }
                 };
+                
                 const countDisplay = total > 0 ? `<div class="flex items-center space-x-2 text-[11px] font-bold"><span class="text-indigo-600">${per}%</span><span class="text-gray-200 font-light">|</span><span class="text-gray-400">${count} <span class="text-[9px] opacity-70">of</span> ${total}</span></div>` : `<span class="text-gray-300 text-[11px] font-bold">0%</span>`;
                 div.innerHTML = `<div class="vote-bar absolute bg-indigo-500 h-full opacity-[0.08]" style="width:${per}%"></div><div class="absolute inset-0 flex justify-between px-6 items-center font-bold"><span class="${myVote === label ? 'text-indigo-700' : 'text-gray-700'} text-sm">${label}</span>${countDisplay}</div>`;
                 area.appendChild(div);
