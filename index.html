@@ -36,6 +36,7 @@
         div[id^="screen-"] { animation: fadeIn 0.2s ease-out; }
         @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
 
+        /* 카드 그리드 전용 애니메이션 및 스타일 */
         .vote-card { 
             transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1); 
             border: 1px solid #f3f4f6;
@@ -200,7 +201,6 @@
             return true;
         };
 
-        // --- 당겨서 새로고침 로직 ---
         let startY = 0;
         let isPulling = false;
         const ptrWrap = document.getElementById('ptr-wrap');
@@ -246,7 +246,6 @@
             }, 400);
         });
 
-        // --- 화면 스위칭 로직 ---
         window.switchScreen = (id, skipPush = false, roomId = null) => {
             document.querySelectorAll('div[id^="screen-"]').forEach(s => s.classList.add('hidden'));
             document.getElementById(id).classList.remove('hidden');
@@ -416,7 +415,7 @@
             let options = {}; 
             const inputs = document.querySelectorAll('.poll-input');
             let hasOption = false;
-            inputs.forEach(i => { if(i.value.trim()) { options[i.value.trim()] = 0; hasOption = true; } });
+            inputs.forEach(i => { if(i.value.trim()) { options[i.value.trim()] = parseInt(i.dataset.count || 0); hasOption = true; } });
             if(!hasOption) return alert("최소 한 개의 선택지가 필요합니다.");
 
             if (isEditMode) {
@@ -446,9 +445,11 @@
             modal.style.display = 'flex';
             if(type === 'edit') {
                 document.getElementById('modal-title').innerText = "수정 확인";
+                document.getElementById('modal-desc').innerText = "수정하시려면 비밀번호를 입력하세요.";
                 document.getElementById('modal-submit-btn').onclick = () => handleEditAuth();
             } else {
                 document.getElementById('modal-title').innerText = "투표 삭제";
+                document.getElementById('modal-desc').innerText = "삭제하시려면 비밀번호를 입력하세요.";
                 document.getElementById('modal-submit-btn').onclick = () => handleDeleteAuth();
             }
         };
@@ -485,46 +486,28 @@
             });
         };
 
-        // --- ⭐ 토글 및 투표 변경 로직 (오늘 시작 버전 복구) ⭐ ---
-        
         function renderPoll(poll, votedIPs) {
             const area = document.getElementById('poll-display-area'); area.innerHTML = "";
-            const total = Object.values(poll.options).reduce((a, b) => a + Number(b), 0);
+            const total = Object.values(poll.options).reduce((a, b) => a + b, 0);
             const myVote = votedIPs[myFingerprint]; 
-
             Object.entries(poll.options).forEach(([label, count]) => {
-                const per = total === 0 ? 0 : Math.round((Number(count) / total) * 100);
+                const per = total === 0 ? 0 : Math.round((count / total) * 100);
                 const div = document.createElement('div');
                 div.className = `relative h-16 rounded-2xl overflow-hidden bg-gray-50 border border-gray-100 mb-3 clickable ${myVote === label ? 'ring-2 ring-indigo-500 bg-white shadow-md' : ''}`;
-                
                 div.onclick = () => {
-                    if(!isSecureAccess()) return alert("비정상적인 접근이 감지되었습니다.");
-                    
-                    const roomRef = ref(db, `rooms/${currentRoomId}`);
-                    runTransaction(roomRef, (roomData) => {
-                        if (!roomData) return roomData;
-                        if (!roomData.votedIPs) roomData.votedIPs = {};
-                        
-                        const currentChoice = roomData.votedIPs[myFingerprint];
-
-                        if (currentChoice === label) {
-                            // 토글 취소
-                            roomData.poll.options[label] = Math.max(0, (Number(roomData.poll.options[label]) || 0) - 1);
-                            delete roomData.votedIPs[myFingerprint];
-                        } else if (currentChoice) {
-                            // 투표 변경
-                            roomData.poll.options[currentChoice] = Math.max(0, (Number(roomData.poll.options[currentChoice]) || 0) - 1);
-                            roomData.poll.options[label] = (Number(roomData.poll.options[label]) || 0) + 1;
-                            roomData.votedIPs[myFingerprint] = label;
-                        } else {
-                            // 신규 투표
-                            roomData.poll.options[label] = (Number(roomData.poll.options[label]) || 0) + 1;
-                            roomData.votedIPs[myFingerprint] = label;
-                        }
-                        return roomData;
-                    });
+                    if(!isSecureAccess()) return alert("비정상적인 활동이 감지되었습니다.");
+                    if (myVote === label) {
+                        runTransaction(ref(db, `rooms/${currentRoomId}/poll/options/${label}`), c => (c > 0 ? c - 1 : 0));
+                        remove(ref(db, `rooms/${currentRoomId}/votedIPs/${myFingerprint}`));
+                    } else if (myVote) {
+                        runTransaction(ref(db, `rooms/${currentRoomId}/poll/options/${myVote}`), c => (c > 0 ? c - 1 : 0));
+                        runTransaction(ref(db, `rooms/${currentRoomId}/poll/options/${label}`), c => (c || 0) + 1);
+                        set(ref(db, `rooms/${currentRoomId}/votedIPs/${myFingerprint}`), label);
+                    } else {
+                        runTransaction(ref(db, `rooms/${currentRoomId}/poll/options/${label}`), c => (c || 0) + 1);
+                        set(ref(db, `rooms/${currentRoomId}/votedIPs/${myFingerprint}`), label);
+                    }
                 };
-                
                 const countDisplay = total > 0 ? `<div class="flex items-center space-x-2 text-[11px] font-bold"><span class="text-indigo-600">${per}%</span><span class="text-gray-200 font-light">|</span><span class="text-gray-400">${count} <span class="text-[9px] opacity-70">of</span> ${total}</span></div>` : `<span class="text-gray-300 text-[11px] font-bold">0%</span>`;
                 div.innerHTML = `<div class="vote-bar absolute bg-indigo-500 h-full opacity-[0.08]" style="width:${per}%"></div><div class="absolute inset-0 flex justify-between px-6 items-center font-bold"><span class="${myVote === label ? 'text-indigo-700' : 'text-gray-700'} text-sm">${label}</span>${countDisplay}</div>`;
                 area.appendChild(div);
@@ -537,12 +520,14 @@
             const container = document.createElement('div');
             container.className = "flex items-center space-x-2 mb-2";
             const input = document.createElement('input'); 
-            input.type = "text"; input.className = "poll-input flex-1 bg-gray-50 rounded-lg p-3 text-sm"; 
+            input.type = "text";
+            input.className = "poll-input flex-1 bg-gray-50 rounded-lg p-3 text-sm"; 
             input.placeholder = `선택지 ${list.children.length + 1}`; 
             input.value = val;
             input.dataset.count = count;
             const delBtn = document.createElement('button');
-            delBtn.innerHTML = "✕"; delBtn.className = "w-10 h-10 flex items-center justify-center bg-gray-100 text-gray-400 rounded-lg font-bold hover:bg-red-50 hover:text-red-500 transition-colors";
+            delBtn.innerHTML = "✕";
+            delBtn.className = "w-10 h-10 flex items-center justify-center bg-gray-100 text-gray-400 rounded-lg font-bold hover:bg-red-50 hover:text-red-500 transition-colors";
             delBtn.onclick = () => { if (list.children.length > 1) container.remove(); else alert("최소 1개의 선택지가 있어야 합니다."); };
             container.appendChild(input); container.appendChild(delBtn); list.appendChild(container); 
         };
