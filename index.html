@@ -24,6 +24,8 @@
             overscroll-behavior-y: contain; 
             position: relative;
             width: 100%;
+            /* 모바일에서 당길 때 배경이 보이도록 설정 */
+            transform-origin: top;
         }
 
         .glass { background: rgba(255, 255, 255, 0.98); backdrop-filter: blur(15px); border-bottom: 1px solid #f3f4f6; }
@@ -39,26 +41,27 @@
         
         #auth-modal { position: fixed; inset: 0; z-index: 20000; display: none; align-items: center; justify-content: center; background: rgba(0,0,0,0.6); padding: 20px; }
 
-        /* 부드러운 새로고침 인디케이터 */
-        #ptr-box {
-            position: fixed; top: 0; left: 0; width: 100%; height: 80px;
-            display: flex; flex-direction: column; align-items: center; justify-content: center;
-            z-index: 40; pointer-events: none; opacity: 0; transform: translateY(-20px);
-            transition: opacity 0.2s, transform 0.1s;
+        /* 세련된 화살표 새로고침 UI */
+        #ptr-wrap {
+            position: absolute; top: -60px; left: 0; width: 100%; height: 60px;
+            display: flex; align-items: center; justify-content: center;
+            z-index: 1; pointer-events: none; opacity: 0;
         }
-        .ptr-circle {
-            width: 32px; height: 32px; border-radius: 50%;
-            border: 3px solid #f3f4f6; border-top-color: #4f46e5;
-            transition: transform 0.1s;
+        .ptr-arrow {
+            width: 24px; height: 24px;
+            fill: none; stroke: #4f46e5; stroke-width: 3;
+            stroke-linecap: round; stroke-linejoin: round;
+            transition: transform 0.1s linear;
         }
-        .ptr-text { font-size: 10px; font-weight: 900; color: #4f46e5; margin-top: 8px; letter-spacing: 0.1em; }
     </style>
 </head>
 <body>
 
-    <div id="ptr-box">
-        <div class="ptr-circle" id="ptr-icon"></div>
-        <div class="ptr-text" id="ptr-label">PULL</div>
+    <div id="ptr-wrap">
+        <svg class="ptr-arrow" id="ptr-icon" viewBox="0 0 24 24">
+            <path d="M23 4v6h-6M1 20v-6h6"/>
+            <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/>
+        </svg>
     </div>
 
     <div id="auth-modal">
@@ -173,15 +176,14 @@
 
         fetch('https://api.ipify.org?format=json').then(r => r.json()).then(d => { userIP = d.ip.replace(/\./g, '_'); });
 
-        // --- 부드러운 수동 새로고침 로직 ---
+        // --- 부드러운 화살표 새로고침 로직 (흰 배경 노출 영역) ---
         let startY = 0;
         let isPulling = false;
-        const ptrBox = document.getElementById('ptr-box');
+        const ptrWrap = document.getElementById('ptr-wrap');
         const ptrIcon = document.getElementById('ptr-icon');
-        const ptrLabel = document.getElementById('ptr-label');
 
         window.addEventListener('touchstart', e => {
-            if (window.scrollY <= 0) {
+            if (window.scrollY <= 5) { // 스크롤이 맨 위일 때만 작동
                 startY = e.touches[0].pageY;
                 isPulling = true;
             }
@@ -192,21 +194,11 @@
             const currentY = e.touches[0].pageY;
             const diff = currentY - startY;
 
-            if (diff > 0 && window.scrollY <= 0) {
-                const moveY = Math.min(diff * 0.35, 100); 
-                ptrBox.style.opacity = Math.min(diff / 150, 1);
-                ptrBox.style.transform = `translateY(${moveY - 20}px)`;
-                ptrIcon.style.transform = `rotate(${diff * 2}deg)`;
+            if (diff > 0 && window.scrollY <= 5) {
+                const moveY = Math.min(diff * 0.4, 70); // 너무 많이 내려가지 않도록 제한
+                ptrWrap.style.opacity = Math.min(diff / 100, 1);
+                ptrIcon.style.transform = `rotate(${diff * 2.5}deg)`; // 당기는 정도에 따라 화살표 회전
                 document.body.style.transform = `translateY(${moveY}px)`;
-                
-                if (diff > 180) {
-                    ptrLabel.innerText = "READY";
-                    ptrIcon.style.borderColor = "#4f46e5";
-                } else {
-                    ptrLabel.innerText = "PULL";
-                    ptrIcon.style.borderColor = "#f3f4f6";
-                    ptrIcon.style.borderTopColor = "#4f46e5";
-                }
             }
         }, { passive: false });
 
@@ -216,22 +208,21 @@
             
             document.body.style.transition = "transform 0.4s cubic-bezier(0.16, 1, 0.3, 1)";
             document.body.style.transform = "translateY(0)";
-            ptrBox.style.transition = "all 0.4s ease";
-            ptrBox.style.opacity = "0";
-            ptrBox.style.transform = "translateY(-20px)";
+            ptrWrap.style.transition = "opacity 0.3s";
+            ptrWrap.style.opacity = "0";
 
-            if (diff > 180 && window.scrollY <= 0) {
+            if (diff > 180 && window.scrollY <= 5) {
                 location.reload();
             }
 
             setTimeout(() => {
                 document.body.style.transition = "";
-                ptrBox.style.transition = "";
+                ptrWrap.style.transition = "";
                 isPulling = false;
             }, 400);
         });
 
-        // --- 화면 유지 및 스위칭 로직 ---
+        // --- 화면 유지 및 스위칭 로직 (기존 기능 100% 보존) ---
         window.switchScreen = (id, skipPush = false, roomId = null) => {
             document.querySelectorAll('div[id^="screen-"]').forEach(s => s.classList.add('hidden'));
             document.getElementById(id).classList.remove('hidden');
@@ -243,7 +234,6 @@
                 const mainUrl = window.location.protocol + "//" + window.location.host + window.location.pathname;
                 if(!skipPush) history.pushState({ screen: id }, "", mainUrl);
             } else {
-                // Hash를 사용하여 새로고침 시에도 화면 유지
                 const stateUrl = window.location.protocol + "//" + window.location.host + window.location.pathname + '#' + id;
                 if(!skipPush) history.pushState({ screen: id }, "", stateUrl);
             }
@@ -260,28 +250,27 @@
             } else if (hash === 'screen-create') {
                 openCreateScreen(true);
             } else {
-                switchScreen('screen-main', true);
+                switchScreen(state?.screen || 'screen-main', true);
             }
         };
 
-        // 새로고침 시 원래 있던 화면 즉시 복구
-        window.addEventListener('DOMContentLoaded', () => {
+        window.addEventListener('load', () => {
             const params = new URLSearchParams(window.location.search);
             const id = params.get('id');
             const hash = window.location.hash.replace('#', '');
             
-            if (id) {
-                const checkData = setInterval(() => {
-                    if (allRooms.length > 0) {
+            const checkData = setInterval(() => {
+                if (allRooms.length > 0 || hash === 'screen-create') {
+                    if (id) {
                         enterRoom(id, false, true);
-                        clearInterval(checkData);
+                    } else if (hash === 'screen-list') {
+                        switchScreen('screen-list', true);
+                    } else if (hash === 'screen-create') {
+                        openCreateScreen(true);
                     }
-                }, 50);
-            } else if (hash === 'screen-list') {
-                switchScreen('screen-list', true);
-            } else if (hash === 'screen-create') {
-                openCreateScreen(true);
-            }
+                    clearInterval(checkData);
+                }
+            }, 50);
         });
 
         window.openCreateScreen = (skipPush = false) => {
