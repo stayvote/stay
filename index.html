@@ -182,15 +182,11 @@
 
         const app = initializeApp(firebaseConfig);
         const db = getDatabase(app);
-
-        let currentRoomId = "";
-        let allRooms = [];
-        let currentCategory = "전체";
+        let currentRoomId = ""; let allRooms = []; let currentCategory = "전체";
         let isEditMode = false;
-
-        let myFingerprint = "";
-        let fpReady = false;     // ✅ 추가: fingerprint 준비 여부
-        let votingLock = false;  // ✅ 추가: 투표 연타 방지(무한증식 방지 보조)
+        let myFingerprint = ""; 
+        let fpReady = false;
+        let votingLock = false;
 
         const setFingerprint = async () => {
             const fp = await FingerprintJS.load();
@@ -208,7 +204,6 @@
         window.switchScreen = (id, skipPush = false, roomId = null) => {
             document.querySelectorAll('div[id^="screen-"]').forEach(s => s.classList.add('hidden'));
             document.getElementById(id).classList.remove('hidden');
-
             if (id === 'screen-room' && roomId) {
                 const newUrl = window.location.protocol + "//" + window.location.host + window.location.pathname + '?id=' + roomId;
                 if(!skipPush) history.pushState({ screen: id, roomId: roomId }, "", newUrl);
@@ -222,61 +217,6 @@
             window.scrollTo(0,0);
         };
 
-        window.onpopstate = (e) => {
-            const state = e.state;
-            const hash = window.location.hash.replace('#', '');
-            if (state?.screen === 'screen-room' && state.roomId) enterRoom(state.roomId, false, true);
-            else if (hash === 'screen-list') switchScreen('screen-list', true);
-            else if (hash === 'screen-create') openCreateScreen(true);
-            else switchScreen('screen-main', true);
-        };
-
-        window.addEventListener('load', () => {
-            const params = new URLSearchParams(window.location.search);
-            const id = params.get('id');
-            const hash = window.location.hash.replace('#', '');
-
-            const checkData = setInterval(() => {
-                if (allRooms.length > 0 || hash === 'screen-create') {
-                    if (id) enterRoom(id, false, true);
-                    else if (hash === 'screen-list') switchScreen('screen-list', true);
-                    else if (hash === 'screen-create') openCreateScreen(true);
-                    clearInterval(checkData);
-                }
-            }, 50);
-        });
-
-        window.openCreateScreen = (skipPush = false) => {
-            isEditMode = false;
-            document.getElementById('create-title').innerText = "New Post";
-            document.getElementById('new-room-name').value = "";
-            document.getElementById('new-room-desc').value = "";
-            document.getElementById('new-room-pw').value = "";
-            document.getElementById('pw-field-container').style.display = 'block';
-            document.getElementById('options-list').innerHTML = "";
-            addOptionField(); addOptionField();
-            document.getElementById('btn-add-option').style.display = 'block';
-            document.getElementById('btn-submit-create').innerText = "게시글 올리기";
-            switchScreen('screen-create', skipPush);
-        };
-
-        window.copyLink = () => {
-            const url = window.location.href;
-            navigator.clipboard.writeText(url).then(() => { alert("투표 링크가 복사되었습니다!"); });
-        };
-
-        window.handleBack = () => {
-            if (history.length > 1) window.history.back();
-            else switchScreen('screen-main');
-        };
-
-        window.goSearch = () => {
-            currentCategory = "전체";
-            document.getElementById('search-bar').value = "";
-            switchScreen('screen-list');
-            refreshData();
-        };
-
         const refreshData = () => {
             get(ref(db, 'rooms')).then(snap => {
                 allRooms = snap.val() ? Object.entries(snap.val()) : [];
@@ -285,24 +225,7 @@
         };
         refreshData();
 
-        window.showMyCreatedPolls = () => {
-            currentCategory = "내가 만든 투표";
-            toggleMenu();
-            renderList();
-        };
-
-        function getTimeAgo(ts) {
-            const sec = Math.floor((Date.now() - ts) / 1000);
-            if (sec < 60) return "방금 전";
-            if (sec < 3600) return Math.floor(sec/60) + "분 전";
-            if (sec < 86400) return Math.floor(sec/3600) + "시간 전";
-            return Math.floor(sec/86400) + "일 전";
-        }
-        function formatExactDate(ts) {
-            const d = new Date(ts);
-            return `${d.getMonth() + 1}.${d.getDate()} ${String(d.getHours()).padStart(2,'0')}:${String(d.getMinutes()).padStart(2,'0')}`;
-        }
-
+        // --- ⭐ 목록 전체 투표수 집계 로직 일치화 ⭐ ---
         window.renderList = () => {
             const listArea = document.getElementById('room-list');
             const query = document.getElementById('search-bar').value.toLowerCase().trim();
@@ -333,27 +256,17 @@
             if (currentCategory !== "실시간 핫") filtered.sort((a,b) => (b[1].createdAt || 0) - (a[1].createdAt || 0));
             
             filtered.forEach(([id, room]) => {
-                // ✅ 목록/상세 투표수 동일(옵션 합산)
+                // ✅ 수정: 미리보기 투표 수를 상세페이지와 동일하게 옵션 총합으로 계산
                 const totalVotes = room.poll?.options ? Object.values(room.poll.options).reduce((a, b) => Number(a) + Number(b), 0) : 0;
                 const timeText = room.createdAt ? getTimeAgo(room.createdAt) : "오래전";
-
-                // ✅ HOT 배지(PC에서도 보이게: 원래처럼 span 그대로)
+                
                 const isHot = (getHotScore(room) > 0.1 || topHotIds.includes(id)) && totalVotes > 0; 
                 const hotBadge = isHot ? `<span class="ml-2 inline-block text-[9px] font-black text-red-500 italic tracking-tighter border border-red-200 px-1.5 py-0.5 rounded-md bg-red-50 animate-pulse uppercase">HOT</span>` : '';
                 
                 const div = document.createElement('div');
                 div.className = "vote-card bg-white p-6 rounded-[2rem] shadow-sm clickable hover:ring-2 hover:ring-indigo-500";
                 div.onclick = () => enterRoom(id, false);
-                div.innerHTML = `
-                    <div class="flex justify-between items-start mb-3">
-                        <span class="text-[9px] font-black text-indigo-500 uppercase tracking-widest">${room.category || '일상/잡담'}</span>
-                        ${hotBadge}
-                    </div>
-                    <div class="text-lg font-bold text-gray-900 mb-3 leading-tight min-h-[3rem]">${room.title}</div>
-                    <div class="pt-4 border-t border-gray-50 flex justify-between items-center">
-                        <span class="text-[10px] text-gray-400 font-bold uppercase tracking-wide">${totalVotes} Votes</span>
-                        <span class="text-[10px] text-gray-300 font-bold uppercase">${timeText}</span>
-                    </div>`;
+                div.innerHTML = `<div class="flex justify-between items-start mb-3"><span class="text-[9px] font-black text-indigo-500 uppercase tracking-widest">${room.category || '일상/잡담'}</span>${hotBadge}</div><div class="text-lg font-bold text-gray-900 mb-3 leading-tight min-h-[3rem]">${room.title}</div><div class="pt-4 border-t border-gray-50 flex justify-between items-center"><span class="text-[10px] text-gray-400 font-bold uppercase tracking-wide">${totalVotes} Votes</span><span class="text-[10px] text-gray-300 font-bold uppercase">${timeText}</span></div>`;
                 listArea.appendChild(div);
             });
         };
@@ -361,7 +274,6 @@
         window.enterRoom = (id, isFromCreate = false, skipPush = false) => {
             currentRoomId = id;
             switchScreen('screen-room', skipPush, id);
-
             onValue(ref(db, `rooms/${id}`), snap => {
                 const data = snap.val(); if(!data) return;
                 document.getElementById('room-display-name').innerText = data.title;
@@ -399,8 +311,7 @@
             if(!hasOption) return alert("최소 한 개의 선택지가 필요합니다.");
 
             if (isEditMode) {
-                // ✅ 수정 시에도 poll.options를 통째로 갱신(경로키 슬래시 문제 방지)
-                update(ref(db, `rooms/${currentRoomId}`), { title, category, desc, poll: { options } }).then(() => {
+                update(ref(db, `rooms/${currentRoomId}`), { title, category, desc, "poll/options": options }).then(() => {
                     alert("성공적으로 수정되었습니다.");
                     isEditMode = false;
                     enterRoom(currentRoomId, true, true);
@@ -437,7 +348,6 @@
                     isEditMode = true; closeAuthModal(); switchScreen('screen-create');
                     document.getElementById('create-title').innerText = "Edit Post";
                     document.getElementById('new-room-name').value = data.title;
-                    document.getElementById('new-room-desc').value = data.desc || "";
                     document.getElementById('options-list').innerHTML = "";
                     Object.entries(data.poll.options).forEach(([label, count]) => { addOptionField(label, count); });
                 } else alert("비밀번호가 틀렸습니다.");
@@ -454,129 +364,58 @@
             });
         };
 
-        // ✅ (선택) 구버전 votedIPs 문자열 자동 청소(1회 실행)
-        // - 문자열로 저장된 votedIPs는 원래 매핑 정보가 없어서 "복구"는 불가.
-        // - 대신 안전하게 {}로 정상화만 해서 더 이상 터지지 않게 함.
-        async function migrateLegacyVotedIPsOnce() {
-            const key = "stay_migrate_votedIPs_v1_done";
-            if (localStorage.getItem(key) === "1") return;
-
-            try {
-                const snap = await get(ref(db, 'rooms'));
-                if (!snap.exists()) { localStorage.setItem(key, "1"); return; }
-
-                const rooms = snap.val();
-                const updates = [];
-
-                for (const [id, room] of Object.entries(rooms)) {
-                    if (!room) continue;
-
-                    // votedIPs가 객체가 아니면(문자열/숫자/null 등) -> {}
-                    const needFixVoted = (room.votedIPs && typeof room.votedIPs !== "object") || room.votedIPs === null;
-                    if (needFixVoted) {
-                        updates.push(update(ref(db, `rooms/${id}`), { votedIPs: {} }));
-                    }
-                }
-
-                if (updates.length > 0) {
-                    await Promise.all(updates);
-                }
-                localStorage.setItem(key, "1");
-            } catch (e) {
-                // 마이그레이션은 실패해도 서비스는 돌아가야 하니까 조용히 무시
-                console.error("migrateLegacyVotedIPsOnce error:", e);
-            }
-        }
-        migrateLegacyVotedIPsOnce();
-
-        // ✅ 핵심 로직: 무한증식 방지 + 토글취소 + 이동 + 구버전 votedIPs 방어
+        // --- ⭐ 안정화된 투표 로직 ⭐ ---
+        
         function renderPoll(poll, votedIPs) {
-            const area = document.getElementById('poll-display-area');
-            area.innerHTML = "";
-
+            const area = document.getElementById('poll-display-area'); area.innerHTML = "";
             const options = poll?.options || {};
             const total = Object.values(options).reduce((a, b) => Number(a) + Number(b), 0);
-
-            // ✅ votedIPs가 문자열로 들어가 있는 구버전 데이터 방어
-            const safeVotedIPs = (votedIPs && typeof votedIPs === "object") ? votedIPs : {};
-            const myVote = (myFingerprint && safeVotedIPs) ? safeVotedIPs[myFingerprint] : null;
+            const myVote = votedIPs[myFingerprint]; 
 
             Object.entries(options).forEach(([label, count]) => {
+                if (label === "괜찮다") return;
+
                 const per = total === 0 ? 0 : Math.round((Number(count) / total) * 100);
                 const div = document.createElement('div');
                 div.className = `relative h-16 rounded-2xl overflow-hidden bg-gray-50 border border-gray-100 mb-3 clickable ${myVote === label ? 'ring-2 ring-indigo-500 bg-white shadow-md' : ''}`;
-
-                div.onclick = async () => {
+                
+                div.onclick = () => {
                     if(!isSecureAccess()) return;
-                    if(!fpReady || !myFingerprint) return alert("식별값을 불러오는 중입니다. 잠시만 기다려주세요.");
-                    if(votingLock) return;
-
+                    if (!fpReady || !myFingerprint) return;
+                    if (votingLock) return;
                     votingLock = true;
-                    try {
-                        const roomRef = ref(db, `rooms/${currentRoomId}`);
 
-                        await runTransaction(roomRef, (roomData) => {
-                            if (!roomData) return roomData;
-
-                            // ✅ 핵심: votedIPs가 문자열/이상한 타입이면 무조건 {}로 재정상화
-                            if (!roomData.votedIPs || typeof roomData.votedIPs !== "object") roomData.votedIPs = {};
-
-                            if (!roomData.poll) roomData.poll = {};
-                            if (!roomData.poll.options || typeof roomData.poll.options !== "object") roomData.poll.options = {};
-
-                            const currentChoice = roomData.votedIPs[myFingerprint];
-
-                            // 1) 토글 취소
-                            if (currentChoice === label) {
-                                roomData.poll.options[label] = Math.max(0, (Number(roomData.poll.options[label]) || 0) - 1);
-                                delete roomData.votedIPs[myFingerprint];
+                    const roomRef = ref(db, `rooms/${currentRoomId}`);
+                    runTransaction(roomRef, (roomData) => {
+                        if (!roomData) return roomData;
+                        if (!roomData.votedIPs || typeof roomData.votedIPs !== "object") roomData.votedIPs = {};
+                        if (!roomData.poll || !roomData.poll.options) return roomData;
+                        
+                        const currentChoice = roomData.votedIPs[myFingerprint];
+                        if (currentChoice === label) {
+                            roomData.poll.options[label] = Math.max(0, (Number(roomData.poll.options[label]) || 0) - 1);
+                            delete roomData.votedIPs[myFingerprint];
+                        } else if (currentChoice) {
+                            if (roomData.poll.options[currentChoice] !== undefined) {
+                                roomData.poll.options[currentChoice] = Math.max(0, (Number(roomData.poll.options[currentChoice]) || 0) - 1);
                             }
-                            // 2) 선택 이동
-                            else if (currentChoice) {
-                                if (roomData.poll.options[currentChoice] !== undefined) {
-                                    roomData.poll.options[currentChoice] = Math.max(0, (Number(roomData.poll.options[currentChoice]) || 0) - 1);
-                                }
-                                roomData.poll.options[label] = (Number(roomData.poll.options[label]) || 0) + 1;
-                                roomData.votedIPs[myFingerprint] = label;
-                            }
-                            // 3) 신규 투표
-                            else {
-                                roomData.poll.options[label] = (Number(roomData.poll.options[label]) || 0) + 1;
-                                roomData.votedIPs[myFingerprint] = label;
-                            }
-
-                            return roomData;
-                        });
-
-                    } catch (e) {
-                        alert(
-                            "투표 트랜잭션 실패:\n" +
-                            "code: " + (e?.code || "없음") + "\n" +
-                            "message: " + (e?.message || String(e))
-                        );
-                        console.error(e);
-                    } finally {
-                        votingLock = false;
-                    }
+                            roomData.poll.options[label] = (Number(roomData.poll.options[label]) || 0) + 1;
+                            roomData.votedIPs[myFingerprint] = label;
+                        } else {
+                            roomData.poll.options[label] = (Number(roomData.poll.options[label]) || 0) + 1;
+                            roomData.votedIPs[myFingerprint] = label;
+                        }
+                        return roomData;
+                    }).finally(() => { votingLock = false; });
                 };
-
-                const countDisplay = total > 0
-                    ? `<div class="flex items-center space-x-2 text-[11px] font-bold"><span class="text-indigo-600">${per}%</span><span class="text-gray-200 font-light">|</span><span class="text-gray-400">${count} <span class="text-[9px] opacity-70">of</span> ${total}</span></div>`
-                    : `<span class="text-gray-300 text-[11px] font-bold">0%</span>`;
-
-                div.innerHTML = `<div class="vote-bar absolute bg-indigo-500 h-full opacity-[0.08]" style="width:${per}%"></div><div class="absolute inset-0 flex justify-between px-6 items-center font-bold"><span class="${myVote === label ? 'text-indigo-700' : 'text-gray-700'} text-sm">${label}</span>${countDisplay}</div>`;
+                
+                const countDisplay = total > 0 ? `<div class="flex items-center space-x-2 text-[11px] font-bold"><span class="text-indigo-600">${per}%</span><span class="text-gray-200 font-light">|</span><span class="text-gray-400">${count} <span class="text-[9px] opacity-70">of</span> ${total}</span></div>` : `<span class="text-gray-300 text-[11px] font-bold">0%</span>`;
+                div.innerHTML = `<div class="vote-bar absolute bg-indigo-500 h-full opacity-[0.08]" style="width:${per}%"></div><div class="absolute inset-0 flex justify-between px-6 items-center font-bold pointer-events-none"><span class="${myVote === label ? 'text-indigo-700' : 'text-gray-700'} text-sm">${label}</span>${countDisplay}</div>`;
                 area.appendChild(div);
             });
         }
 
-        window.toggleMenu = () => {
-            const m = document.getElementById('side-menu');
-            const o = document.getElementById('menu-overlay');
-            const open = m.style.transform === 'translateX(0px)';
-            m.style.transform = open ? 'translateX(-100%)' : 'translateX(0px)';
-            o.style.display = open ? 'none' : 'block';
-        };
-
+        window.toggleMenu = () => { const m = document.getElementById('side-menu'); const o = document.getElementById('menu-overlay'); const open = m.style.transform === 'translateX(0px)'; m.style.transform = open ? 'translateX(-100%)' : 'translateX(0px)'; o.style.display = open ? 'none' : 'block'; };
         window.addOptionField = (val = "", count = 0) => { 
             const list = document.getElementById('options-list'); 
             const container = document.createElement('div');
@@ -590,9 +429,22 @@
             delBtn.onclick = () => { if (list.children.length > 1) container.remove(); };
             container.appendChild(input); container.appendChild(delBtn); list.appendChild(container); 
         };
-
         window.filterByCategory = (c) => { currentCategory = c; renderList(); toggleMenu(); };
+        function getTimeAgo(ts) {
+            const sec = Math.floor((Date.now() - ts) / 1000);
+            if (sec < 60) return "방금 전";
+            if (sec < 3600) return Math.floor(sec/60) + "분 전";
+            if (sec < 86400) return Math.floor(sec/3600) + "시간 전";
+            return Math.floor(sec/86400) + "일 전";
+        }
+        function formatExactDate(ts) {
+            const d = new Date(ts);
+            return `${d.getMonth() + 1}.${d.getDate()} ${String(d.getHours()).padStart(2,'0')}:${String(d.getMinutes()).padStart(2,'0')}`;
+        }
+        function handleBack() {
+            if (history.length > 1) window.history.back();
+            else switchScreen('screen-main');
+        }
     </script>
 </body>
 </html>
-
