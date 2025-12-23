@@ -23,6 +23,7 @@
             -webkit-tap-highlight-color: transparent;
             overscroll-behavior-y: contain; 
             position: relative;
+            width: 100%;
         }
 
         .glass { background: rgba(255, 255, 255, 0.98); backdrop-filter: blur(15px); border-bottom: 1px solid #f3f4f6; }
@@ -38,17 +39,27 @@
         
         #auth-modal { position: fixed; inset: 0; z-index: 20000; display: none; align-items: center; justify-content: center; background: rgba(0,0,0,0.6); padding: 20px; }
 
-        #ptr-indicator {
-            position: absolute; top: -50px; left: 0; width: 100%; height: 50px;
-            display: flex; align-items: center; justify-content: center;
-            font-size: 12px; font-weight: 800; color: #4f46e5; transition: transform 0.1s;
-            z-index: 50; pointer-events: none;
+        /* 부드러운 새로고침 인디케이터 */
+        #ptr-box {
+            position: fixed; top: 0; left: 0; width: 100%; height: 80px;
+            display: flex; flex-direction: column; align-items: center; justify-content: center;
+            z-index: 40; pointer-events: none; opacity: 0; transform: translateY(-20px);
+            transition: opacity 0.2s, transform 0.1s;
         }
+        .ptr-circle {
+            width: 32px; height: 32px; border-radius: 50%;
+            border: 3px solid #f3f4f6; border-top-color: #4f46e5;
+            transition: transform 0.1s;
+        }
+        .ptr-text { font-size: 10px; font-weight: 900; color: #4f46e5; margin-top: 8px; letter-spacing: 0.1em; }
     </style>
 </head>
 <body>
 
-    <div id="ptr-indicator">RELEASE TO REFRESH</div>
+    <div id="ptr-box">
+        <div class="ptr-circle" id="ptr-icon"></div>
+        <div class="ptr-text" id="ptr-label">PULL</div>
+    </div>
 
     <div id="auth-modal">
         <div class="bg-white w-full max-w-xs p-6 rounded-[2rem] shadow-2xl space-y-4">
@@ -96,7 +107,7 @@
             <select id="new-room-cat" class="w-full bg-gray-50 rounded-xl p-4 text-sm"><option value="일상/잡담">일상/잡담</option><option value="이슈/뉴스">이슈/뉴스</option><option value="연애/심리">연애/심리</option><option value="취미/문화">취미/문화</option></select>
             <input type="text" id="new-room-name" placeholder="투표 제목" class="w-full bg-gray-50 rounded-xl p-4 outline-none">
             <textarea id="new-room-desc" placeholder="설명 (선택)" rows="3" class="w-full bg-gray-50 rounded-xl p-4 text-sm outline-none resize-none"></textarea>
-            <div id="pw-field-container"><input type="password" id="new-room-pw" placeholder="삭제 및 수정 비밀번호" class="w-full bg-gray-50 rounded-xl p-4 text-sm outline-none"></div>
+            <div id="pw-field-container"><input type="password" id="new-room-pw" placeholder="삭제 및 수정 비밀번호" class="w-full bg-gray-100 rounded-xl p-4 text-sm outline-none"></div>
             <div id="options-list" class="space-y-2 pt-2"></div>
             <button id="btn-add-option" onclick="addOptionField()" class="text-[10px] text-indigo-500 font-bold uppercase p-2">+ Add Option</button>
             <button id="btn-submit-create" onclick="processCreate()" class="w-full btn-main py-4 rounded-xl font-bold text-lg clickable mt-4 shadow-md">게시글 올리기</button>
@@ -162,12 +173,15 @@
 
         fetch('https://api.ipify.org?format=json').then(r => r.json()).then(d => { userIP = d.ip.replace(/\./g, '_'); });
 
+        // --- 부드러운 수동 새로고침 로직 ---
         let startY = 0;
         let isPulling = false;
-        const indicator = document.getElementById('ptr-indicator');
+        const ptrBox = document.getElementById('ptr-box');
+        const ptrIcon = document.getElementById('ptr-icon');
+        const ptrLabel = document.getElementById('ptr-label');
 
         window.addEventListener('touchstart', e => {
-            if (window.scrollY === 0) {
+            if (window.scrollY <= 0) {
                 startY = e.touches[0].pageY;
                 isPulling = true;
             }
@@ -178,15 +192,20 @@
             const currentY = e.touches[0].pageY;
             const diff = currentY - startY;
 
-            if (diff > 0 && window.scrollY === 0) {
-                const moveY = Math.min(diff * 0.4, 80); 
+            if (diff > 0 && window.scrollY <= 0) {
+                const moveY = Math.min(diff * 0.35, 100); 
+                ptrBox.style.opacity = Math.min(diff / 150, 1);
+                ptrBox.style.transform = `translateY(${moveY - 20}px)`;
+                ptrIcon.style.transform = `rotate(${diff * 2}deg)`;
                 document.body.style.transform = `translateY(${moveY}px)`;
-                indicator.style.transform = `translateY(${moveY}px)`;
                 
-                if (diff > 150) {
-                    indicator.innerText = "RELEASE TO REFRESH";
+                if (diff > 180) {
+                    ptrLabel.innerText = "READY";
+                    ptrIcon.style.borderColor = "#4f46e5";
                 } else {
-                    indicator.innerText = "PULL DOWN";
+                    ptrLabel.innerText = "PULL";
+                    ptrIcon.style.borderColor = "#f3f4f6";
+                    ptrIcon.style.borderTopColor = "#4f46e5";
                 }
             }
         }, { passive: false });
@@ -195,27 +214,28 @@
             if (!isPulling) return;
             const diff = e.changedTouches[0].pageY - startY;
             
-            document.body.style.transition = "transform 0.3s ease";
+            document.body.style.transition = "transform 0.4s cubic-bezier(0.16, 1, 0.3, 1)";
             document.body.style.transform = "translateY(0)";
-            indicator.style.transition = "transform 0.3s ease";
-            indicator.style.transform = "translateY(0)";
+            ptrBox.style.transition = "all 0.4s ease";
+            ptrBox.style.opacity = "0";
+            ptrBox.style.transform = "translateY(-20px)";
 
-            if (diff > 150 && window.scrollY === 0) {
+            if (diff > 180 && window.scrollY <= 0) {
                 location.reload();
             }
 
             setTimeout(() => {
                 document.body.style.transition = "";
-                indicator.style.transition = "";
+                ptrBox.style.transition = "";
                 isPulling = false;
-            }, 300);
+            }, 400);
         });
 
+        // --- 화면 유지 및 스위칭 로직 ---
         window.switchScreen = (id, skipPush = false, roomId = null) => {
             document.querySelectorAll('div[id^="screen-"]').forEach(s => s.classList.add('hidden'));
             document.getElementById(id).classList.remove('hidden');
             
-            // 새로고침 유지를 위해 주소창에 화면 상태 저장
             if (id === 'screen-room' && roomId) {
                 const newUrl = window.location.protocol + "//" + window.location.host + window.location.pathname + '?id=' + roomId;
                 if(!skipPush) history.pushState({ screen: id, roomId: roomId }, "", newUrl);
@@ -223,8 +243,8 @@
                 const mainUrl = window.location.protocol + "//" + window.location.host + window.location.pathname;
                 if(!skipPush) history.pushState({ screen: id }, "", mainUrl);
             } else {
-                // 목록이나 생성 화면의 경우 Hash 사용
-                const stateUrl = window.location.protocol + "//" + window.location.host + window.location.pathname + (id === 'screen-main' ? '' : '#' + id);
+                // Hash를 사용하여 새로고침 시에도 화면 유지
+                const stateUrl = window.location.protocol + "//" + window.location.host + window.location.pathname + '#' + id;
                 if(!skipPush) history.pushState({ screen: id }, "", stateUrl);
             }
             window.scrollTo(0,0);
@@ -232,34 +252,39 @@
 
         window.onpopstate = (e) => {
             const state = e.state;
+            const hash = window.location.hash.replace('#', '');
             if (state?.screen === 'screen-room' && state.roomId) {
                 enterRoom(state.roomId, false, true);
+            } else if (hash === 'screen-list') {
+                switchScreen('screen-list', true);
+            } else if (hash === 'screen-create') {
+                openCreateScreen(true);
             } else {
-                switchScreen(state?.screen || 'screen-main', true);
+                switchScreen('screen-main', true);
             }
         };
 
-        // 새로고침 시 원래 있던 화면을 찾아가는 로직
-        window.addEventListener('load', () => {
+        // 새로고침 시 원래 있던 화면 즉시 복구
+        window.addEventListener('DOMContentLoaded', () => {
             const params = new URLSearchParams(window.location.search);
             const id = params.get('id');
             const hash = window.location.hash.replace('#', '');
             
-            const checkData = setInterval(() => {
-                if (allRooms.length > 0 || (hash === 'screen-create')) {
-                    if (id) {
+            if (id) {
+                const checkData = setInterval(() => {
+                    if (allRooms.length > 0) {
                         enterRoom(id, false, true);
-                    } else if (hash === 'screen-list') {
-                        switchScreen('screen-list', true);
-                    } else if (hash === 'screen-create') {
-                        openCreateScreen(true);
+                        clearInterval(checkData);
                     }
-                    clearInterval(checkData);
-                }
-            }, 100);
+                }, 50);
+            } else if (hash === 'screen-list') {
+                switchScreen('screen-list', true);
+            } else if (hash === 'screen-create') {
+                openCreateScreen(true);
+            }
         });
 
-        window.openCreateScreen = (skipHistory = false) => {
+        window.openCreateScreen = (skipPush = false) => {
             isEditMode = false;
             document.getElementById('create-title').innerText = "New Post";
             document.getElementById('new-room-name').value = "";
@@ -270,7 +295,7 @@
             addOptionField(); addOptionField();
             document.getElementById('btn-add-option').style.display = 'block';
             document.getElementById('btn-submit-create').innerText = "게시글 올리기";
-            switchScreen('screen-create', skipHistory);
+            switchScreen('screen-create', skipPush);
         };
 
         window.copyLink = () => {
