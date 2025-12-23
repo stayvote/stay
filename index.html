@@ -198,7 +198,6 @@
             return true;
         };
 
-        // UI & 네비게이션 로직 (유지)
         window.switchScreen = (id, skipPush = false, roomId = null) => {
             document.querySelectorAll('div[id^="screen-"]').forEach(s => s.classList.add('hidden'));
             document.getElementById(id).classList.remove('hidden');
@@ -300,12 +299,15 @@
             const query = document.getElementById('search-bar').value.toLowerCase().trim();
             listArea.innerHTML = "";
             document.getElementById('current-board-name').innerText = currentCategory;
+            
             const getHotScore = (room) => {
                 const votes = room.votedIPs ? Object.keys(room.votedIPs).length : 0;
                 const hours = (Date.now() - (room.createdAt || Date.now())) / 3600000;
                 return votes / Math.pow(hours + 2, 1.5);
             };
+            
             const topHotIds = [...allRooms].sort((a, b) => getHotScore(b[1]) - getHotScore(a[1])).slice(0, 3).map(item => item[0]);
+            
             let displayRooms = [...allRooms];
             if (currentCategory === "실시간 핫") {
                 displayRooms = displayRooms.filter(([id, room]) => {
@@ -317,13 +319,18 @@
             } else if (currentCategory !== "전체") {
                 displayRooms = displayRooms.filter(([id, room]) => (room.category || "일상/잡담") === currentCategory);
             }
+            
             const filtered = displayRooms.filter(([id, room]) => room.title.toLowerCase().includes(query));
             if (currentCategory !== "실시간 핫") filtered.sort((a,b) => (b[1].createdAt || 0) - (a[1].createdAt || 0));
+            
             filtered.forEach(([id, room]) => {
                 const votes = room.votedIPs ? Object.keys(room.votedIPs).length : 0;
                 const timeText = room.createdAt ? getTimeAgo(room.createdAt) : "오래전";
+                
+                // ⭐ 핫 배지 복구 ⭐
                 const isHot = (getHotScore(room) > 0.1 || topHotIds.includes(id)) && votes > 0; 
                 const hotBadge = isHot ? `<span class="ml-2 text-[9px] font-black text-red-500 italic tracking-tighter border border-red-200 px-1.5 py-0.5 rounded-md bg-red-50 animate-pulse uppercase">HOT</span>` : '';
+                
                 const div = document.createElement('div');
                 div.className = "vote-card bg-white p-6 rounded-[2rem] shadow-sm clickable hover:ring-2 hover:ring-indigo-500";
                 div.onclick = () => enterRoom(id, false);
@@ -409,6 +416,8 @@
                     isEditMode = true; closeAuthModal(); switchScreen('screen-create');
                     document.getElementById('create-title').innerText = "Edit Post";
                     document.getElementById('new-room-name').value = data.title;
+                    document.getElementById('new-room-cat').value = data.category || "일상/잡담";
+                    document.getElementById('new-room-desc').value = data.desc || "";
                     document.getElementById('options-list').innerHTML = "";
                     Object.entries(data.poll.options).forEach(([label, count]) => { addOptionField(label, count); });
                 } else alert("비밀번호가 틀렸습니다.");
@@ -425,7 +434,7 @@
             });
         };
 
-        // --- ⭐ 토글 및 선택 이동 완벽 복구 로직 ⭐ ---
+        // --- ⭐ 토글 및 선택 이동 완벽 복구 ⭐ ---
         function renderPoll(poll, votedIPs) {
             const area = document.getElementById('poll-display-area'); area.innerHTML = "";
             const total = Object.values(poll.options).reduce((a, b) => a + b, 0);
@@ -440,16 +449,21 @@
                     if(!isSecureAccess()) return;
                     
                     const roomRef = ref(db, `rooms/${currentRoomId}`);
+                    // runTransaction 내부에서 전체 roomData를 받아와 확실하게 처리합니다.
                     runTransaction(roomRef, (roomData) => {
                         if (!roomData) return roomData;
+                        
+                        // 데이터 구조 방어 코드
                         if (!roomData.votedIPs) roomData.votedIPs = {};
+                        if (!roomData.poll || !roomData.poll.options) return roomData;
                         
                         const currentChoice = roomData.votedIPs[myFingerprint];
 
                         if (currentChoice === label) {
                             // 1. 토글 취소: 이미 선택한걸 또 누름
                             roomData.poll.options[label] = Math.max(0, (roomData.poll.options[label] || 0) - 1);
-                            delete roomData.votedIPs[myFingerprint];
+                            // Firebase 지우기: delete 연산자 사용 (runTransaction 내에서는 delete가 작동합니다)
+                            roomData.votedIPs[myFingerprint] = null; 
                         } else if (currentChoice) {
                             // 2. 선택 이동: 다른걸 선택한 상태에서 새걸 누름
                             roomData.poll.options[currentChoice] = Math.max(0, (roomData.poll.options[currentChoice] || 0) - 1);
