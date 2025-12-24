@@ -1,1016 +1,194 @@
 <!DOCTYPE html>
 <html lang="ko">
 <head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+<title>STAY - 실시간 익명 투표</title>
 
-  <meta name="naver-site-verification" content="b0edbc1bb2667fa54c19a898e12c1a94416dd9da" />
-  <meta name="google-site-verification" content="m-4-AfhCJa3w-XO85XrOn0EzN7SshBdjbR9KkLHae2c" />
+<script src="https://cdn.tailwindcss.com"></script>
 
-  <meta property="og:title" content="STAY - 실시간 익명 투표" />
-  <meta property="og:description" content="지금 바로 투표를 만들고 사람들의 솔직한 의견을 들어보세요." />
-  <meta property="og:type" content="website" />
-  <meta property="og:url" content="https://www.stayvote.co.kr" />
-  <meta property="og:image" content="https://stayvote.github.io/stay/og-image.png" />
+<!-- Firebase compat -->
+<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-database-compat.js"></script>
 
-  <title>STAY - 실시간 익명 투표</title>
-
-  <!-- Tailwind -->
-  <script src="https://cdn.tailwindcss.com"></script>
-
-  <!-- FingerprintJS -->
-  <script src="https://openfpcdn.io/fingerprintjs/v4/iife.min.js"></script>
-
-  <!-- Firebase compat -->
-  <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
-  <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-database-compat.js"></script>
-
-  <style>
-    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700;900&display=swap');
-
-    body {
-      font-family: 'Inter', sans-serif;
-      background-color: #ffffff;
-      color: #111827;
-      overflow-x: hidden;
-      -webkit-tap-highlight-color: transparent;
-      overscroll-behavior-y: contain;
-      position: relative;
-      width: 100%;
-      transform-origin: top;
-    }
-
-    .glass { background: rgba(255, 255, 255, 0.98); backdrop-filter: blur(15px); border-bottom: 1px solid #f3f4f6; }
-    .btn-main { background: linear-gradient(135deg, #4f46e5 0%, #7c3aed 100%); color: white; }
-
-    div[id^="screen-"] { animation: fadeIn 0.2s ease-out; }
-    @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
-
-    .vote-card {
-      transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-      border: 1px solid #f3f4f6;
-    }
-    @media (hover: hover) {
-      .vote-card:hover {
-        transform: translateY(-8px);
-        box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.08);
-        border-color: #6366f1;
-      }
-    }
-    .vote-card:active { transform: scale(0.97); }
-
-    .vote-bar { transition: width 0.8s cubic-bezier(0.34, 1.56, 0.64, 1); }
-
-    #side-menu {
-      position: fixed; top: 0; left: 0; width: 280px; height: 100%;
-      background: white; z-index: 10001;
-      transform: translateX(-100%);
-      transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-      box-shadow: 20px 0 50px rgba(0,0,0,0.1);
-    }
-    #menu-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.5); z-index: 10000; display: none; }
-
-    input, textarea { font-size: 16px !important; background-color: #f3f4f6 !important; }
-
-    #auth-modal {
-      position: fixed; inset: 0; z-index: 20000;
-      display: none; align-items: center; justify-content: center;
-      background: rgba(0,0,0,0.6); padding: 20px;
-    }
-
-    .hp-field { position: absolute; left: -9999px; top: -9999px; opacity: 0; }
-
-    .clickable { cursor: pointer; }
-
-    /* ✅ Pull-to-refresh UI (당겼을 때 노출되는 흰부분 영역에 표시) */
-    #ptr-wrap {
-      position: fixed;
-      top: 0;
-      left: 0;
-      width: 100%;
-      height: 72px;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      z-index: 99999;
-      pointer-events: none;
-      opacity: 0;
-      transform: translateY(-72px);
-      transition: opacity 0.12s ease, transform 0.12s ease;
-      background: transparent;
-    }
-    #ptr-icon {
-      width: 28px; height: 28px;
-      fill: none;
-      stroke: #4f46e5;
-      stroke-width: 2.5;
-      stroke-linecap: round;
-      stroke-linejoin: round;
-      transform: rotate(0deg);
-      transition: transform 0.06s linear;
-    }
-  </style>
+<style>
+body { font-family: system-ui, -apple-system, BlinkMacSystemFont, sans-serif; }
+.clickable { cursor:pointer; }
+.vote-bar { transition: width .5s ease; }
+</style>
 </head>
 
-<body>
-  <!-- 허니팟 -->
-  <input type="text" id="hp_nickname" class="hp-field" tabindex="-1" autocomplete="off" />
-
-  <!-- ✅ Pull-to-refresh icon -->
-  <div id="ptr-wrap">
-    <svg id="ptr-icon" viewBox="0 0 24 24">
-      <path d="M23 4v6h-6M1 20v-6h6"/>
-      <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/>
-    </svg>
-  </div>
-
-  <!-- Auth modal -->
-  <div id="auth-modal">
-    <div class="bg-white w-full max-w-xs p-6 rounded-[2rem] shadow-2xl space-y-4">
-      <h3 id="modal-title" class="text-lg font-black text-center">확인</h3>
-      <p id="modal-desc" class="text-xs text-gray-500 text-center">비밀번호를 입력해 주세요.</p>
-      <input type="password" id="modal-pw-input" placeholder="비밀번호"
-             class="w-full bg-gray-100 rounded-xl p-4 outline-none text-center" />
-      <div class="flex space-x-2">
-        <button onclick="closeAuthModal()" class="flex-1 bg-gray-100 py-3 rounded-xl font-bold text-gray-500">취소</button>
-        <button id="modal-submit-btn" class="flex-1 btn-main py-3 rounded-xl font-bold text-white">확인</button>
-      </div>
-    </div>
-  </div>
-
-  <!-- Side menu -->
-  <div id="menu-overlay" onclick="toggleMenu()"></div>
-  <div id="side-menu">
-    <div class="p-8">
-      <h3 class="text-xs font-black text-indigo-600 uppercase tracking-[0.2em] mb-10">Menu</h3>
-      <nav class="space-y-2">
-        <button onclick="filterByCategory('전체')" class="w-full text-left px-5 py-4 rounded-2xl font-bold text-gray-900 hover:bg-gray-50 transition-colors">전체보기</button>
-        <button onclick="showMyCreatedPolls()" class="w-full text-left px-5 py-4 rounded-2xl font-bold text-indigo-600 hover:bg-indigo-50 transition-colors">👤 내가 만든 투표</button>
-        <button onclick="filterByCategory('실시간 핫')" class="w-full text-left px-5 py-4 rounded-2xl font-bold text-red-500 hover:bg-red-50 transition-colors">🔥 실시간 핫</button>
-        <div class="h-px bg-gray-100 my-4"></div>
-        <button onclick="filterByCategory('이슈/뉴스')" class="w-full text-left px-5 py-4 rounded-2xl font-bold text-gray-700 hover:bg-gray-50 transition-colors">이슈/뉴스</button>
-        <button onclick="filterByCategory('연애/심리')" class="w-full text-left px-5 py-4 rounded-2xl font-bold text-gray-700 hover:bg-gray-50 transition-colors">연애/심리</button>
-        <button onclick="filterByCategory('취미/문화')" class="w-full text-left px-5 py-4 rounded-2xl font-bold text-gray-700 hover:bg-gray-50 transition-colors">취미/문화</button>
-        <button onclick="filterByCategory('일상/잡담')" class="w-full text-left px-5 py-4 rounded-2xl font-bold text-gray-700 hover:bg-gray-50 transition-colors">일상/잡담</button>
-      </nav>
-    </div>
-  </div>
-
-  <!-- Screen: main -->
-  <div id="screen-main" class="flex flex-col items-center justify-center h-screen space-y-8 p-6 text-center">
-    <h1 class="text-7xl font-black italic tracking-tighter text-gray-900">STAY.</h1>
-    <div class="grid grid-cols-1 gap-3 w-full max-w-xs">
-      <button onclick="openCreateScreen()" class="btn-main p-6 rounded-[1.5rem] font-bold text-lg clickable">새 투표 만들기</button>
-      <button onclick="goSearch()" class="bg-gray-50 p-6 rounded-[1.5rem] font-bold text-lg clickable text-gray-700 border border-gray-200">전체 투표 목록</button>
-    </div>
-  </div>
-
-  <!-- Screen: create -->
-  <div id="screen-create" class="hidden min-h-screen p-6 flex flex-col items-center pt-10 bg-gray-50">
-    <div class="w-full max-w-md bg-white p-8 rounded-[2rem] shadow-xl space-y-4">
-      <div class="flex justify-between items-center mb-2">
-        <h3 id="create-title" class="text-xl font-black italic text-indigo-600 uppercase">New Post</h3>
-        <button onclick="handleBack()" class="text-gray-400 font-bold text-[10px] p-2">BACK</button>
-      </div>
-      <select id="new-room-cat" class="w-full bg-gray-50 rounded-xl p-4 text-sm">
-        <option value="일상/잡담">일상/잡담</option>
-        <option value="이슈/뉴스">이슈/뉴스</option>
-        <option value="연애/심리">연애/심리</option>
-        <option value="취미/문화">취미/문화</option>
-      </select>
-      <input type="text" id="new-room-name" placeholder="투표 제목" class="w-full bg-gray-50 rounded-xl p-4 outline-none" />
-      <textarea id="new-room-desc" placeholder="설명 (선택)" rows="3" class="w-full bg-gray-50 rounded-xl p-4 text-sm outline-none resize-none"></textarea>
-      <div id="pw-field-container">
-        <input type="password" id="new-room-pw" placeholder="삭제 및 수정 비밀번호" class="w-full bg-gray-100 rounded-xl p-4 text-sm outline-none" />
-      </div>
-
-      <div id="options-list" class="space-y-2 pt-2"></div>
-      <button id="btn-add-option" onclick="addOptionField()" class="text-[10px] text-indigo-500 font-bold uppercase p-2">+ Add Option</button>
-
-      <button id="btn-submit-create" onclick="processCreate()" class="w-full btn-main py-4 rounded-xl font-bold text-lg clickable mt-4 shadow-md">게시글 올리기</button>
-    </div>
-  </div>
-
-  <!-- Screen: list -->
-  <div id="screen-list" class="hidden min-h-screen bg-white">
-    <div class="sticky top-0 z-[100] glass p-5 flex justify-between items-center">
-      <button onclick="toggleMenu()" class="p-2 font-black text-[10px]">MENU</button>
-      <h2 id="current-board-name" class="text-xl font-black italic">전체보기</h2>
-      <button onclick="switchScreen('screen-main')" class="text-gray-400 font-bold text-[10px]">EXIT</button>
-    </div>
-    <div class="p-4">
-      <input type="text" id="search-bar" oninput="renderList()" placeholder="제목 검색..." class="w-full bg-gray-100 rounded-xl py-4 px-5 text-sm outline-none" />
-    </div>
-    <div id="room-list" class="p-4 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 bg-gray-50 min-h-screen content-start"></div>
-  </div>
-
-  <!-- Screen: room -->
-  <div id="screen-room" class="hidden min-h-screen bg-white">
-    <div class="sticky top-0 z-[100] glass p-4 flex justify-between items-center bg-white">
-      <div class="flex items-center space-x-2">
-        <button id="btn-room-back" onclick="handleBack()" class="text-gray-400 p-2 font-black text-[10px]">← BACK</button>
-        <button onclick="switchScreen('screen-main')" class="text-gray-600 p-2 font-black text-[10px]">EXIT</button>
-      </div>
-      <button onclick="copyLink()" class="px-3 py-1 bg-indigo-50 text-indigo-600 text-[9px] font-bold rounded-full border border-indigo-100 uppercase tracking-tighter">Copy Link</button>
-    </div>
-
-    <div class="w-full max-w-md mx-auto p-6 mt-6 text-center">
-      <span id="room-display-cat" class="text-[10px] font-black text-indigo-500 uppercase tracking-widest mb-2 block"></span>
-      <h2 id="room-display-name" class="text-3xl font-black mb-1 italic tracking-tighter text-gray-900 leading-tight"></h2>
-      <div id="room-display-date" class="text-[10px] font-bold text-gray-300 uppercase mb-6"></div>
-      <p id="room-display-desc" class="text-gray-500 text-sm mb-12"></p>
-
-      <div id="poll-display-area" class="space-y-3 mb-8"></div>
-
-      <div class="flex space-x-2 mb-12">
-        <button onclick="openAuthModal('edit')" class="flex-1 bg-gray-50 text-indigo-500 text-[10px] font-black uppercase p-4 rounded-xl border border-indigo-50 transition-colors">Edit Post</button>
-        <button onclick="openAuthModal('delete')" class="flex-1 bg-gray-50 text-red-400 text-[10px] font-black uppercase p-4 rounded-xl border border-red-50">Delete Post</button>
-      </div>
-
-      <div class="pt-10 border-t border-gray-100 text-left">
-        <h4 class="text-xs font-black text-gray-900 uppercase tracking-widest mb-6 px-2 text-center font-bold">Next for you</h4>
-        <div id="recommend-list" class="space-y-4 pb-20"></div>
-      </div>
-    </div>
-  </div>
-
-  <script>
-    /***********************
-     * Firebase init (compat)
-     ***********************/
-    const firebaseConfig = {
-      apiKey: "AIzaSyAgydW97uyDPNqs5VPZnSt5E-fytezqVO0",
-      authDomain: "project-8611780166111781402.firebaseapp.com",
-      databaseURL: "https://project-8611780166111781402-default-rtdb.firebaseio.com",
-      projectId: "project-8611780166111781402"
-    };
-
-    firebase.initializeApp(firebaseConfig);
-    const db = firebase.database();
-
-    /***********************
-     * Global state
-     ***********************/
-    let currentRoomId = "";
-    let allRooms = [];
-    let currentCategory = "전체";
-    let isEditMode = false;
-
-    // ✅ "업데이트 후 내가 만든 투표가 사라짐" 완화: 항상 안정적인 localStorage ID를 기본으로 사용
-    // - FP는 성공하면 같은 키에 "업그레이드"로 덮어쓰기(변하지 않게 저장)
-    const STAY_ID_KEY = "stay_user_id";
-
-    let myFingerprint = localStorage.getItem(STAY_ID_KEY) || ("u_" + Math.random().toString(36).slice(2, 11));
-    localStorage.setItem(STAY_ID_KEY, myFingerprint);
-
-    let fpReady = true; // 기본 ID는 즉시 준비됨
-    let votingLock = false;
-
-    let roomListenerRef = null; // enterRoom 중복 리스너 방지
-    let listDirty = false;      // ✅ 방에서 변경 발생 시 목록 즉시 반영용
-
-    /***********************
-     * Helpers
-     ***********************/
-    function isKakaoInApp() {
-      return /KAKAOTALK/i.test(navigator.userAgent || "");
-    }
-
-    function isSecureAccess() {
-      return document.getElementById('hp_nickname').value === "";
-    }
-
-    function sumVotesFromOptions(options) {
-      if (!options || typeof options !== "object") return 0;
-      return Object.values(options).reduce((a, b) => Number(a) + Number(b), 0);
-    }
-
-    function getTimeAgo(ts) {
-      const sec = Math.floor((Date.now() - ts) / 1000);
-      if (sec < 60) return "방금 전";
-      if (sec < 3600) return Math.floor(sec/60) + "분 전";
-      if (sec < 86400) return Math.floor(sec/3600) + "시간 전";
-      return Math.floor(sec/86400) + "일 전";
-    }
-
-    function formatExactDate(ts) {
-      const d = new Date(ts);
-      return `${d.getMonth() + 1}.${d.getDate()} ${String(d.getHours()).padStart(2,'0')}:${String(d.getMinutes()).padStart(2,'0')}`;
-    }
-
-    function escapeHtml(str) {
-      return String(str)
-        .replaceAll("&", "&amp;")
-        .replaceAll("<", "&lt;")
-        .replaceAll(">", "&gt;")
-        .replaceAll('"', "&quot;")
-        .replaceAll("'", "&#039;");
-    }
-
-    /***********************
-     * ✅ Fingerprint: "가능하면 업그레이드"만 (기본은 localStorage ID)
-     ***********************/
-    (async function tryUpgradeFingerprint() {
-      // 카톡 인앱에서는 FP가 종종 느리거나 막혀서 "업그레이드 시도"만 짧게 함
-      const timeoutMs = isKakaoInApp() ? 1200 : 3000;
-
-      try {
-        const fp = await Promise.race([
-          window.FingerprintJS.load(),
-          new Promise((_, rej) => setTimeout(() => rej(new Error("fp_timeout")), timeoutMs))
-        ]);
-        const res = await Promise.race([
-          fp.get(),
-          new Promise((_, rej) => setTimeout(() => rej(new Error("fp_get_timeout")), timeoutMs))
-        ]);
-
-        if (res?.visitorId) {
-          // ✅ 업그레이드: 같은 키에 저장 → 업데이트/새로고침해도 "내가 만든 투표" 유지
-          myFingerprint = res.visitorId;
-          localStorage.setItem(STAY_ID_KEY, myFingerprint);
-          fpReady = true;
-        }
-      } catch (_) {
-        // 실패해도 기본 ID로 계속 동작 (클릭 먹통 방지)
-      }
-    })();
-
-    /***********************
-     * ✅ Tap vs Scroll 구분 (모바일 스크롤이 클릭으로 먹히는 버그 해결 핵심)
-     ***********************/
-    function attachTap(el, onTap) {
-      let sx = 0, sy = 0, moved = false;
-
-      el.addEventListener("touchstart", (e) => {
-        if (!e.touches || e.touches.length !== 1) return;
-        const t = e.touches[0];
-        sx = t.clientX; sy = t.clientY;
-        moved = false;
-      }, { passive: true });
-
-      el.addEventListener("touchmove", (e) => {
-        if (!e.touches || e.touches.length !== 1) return;
-        const t = e.touches[0];
-        const dx = Math.abs(t.clientX - sx);
-        const dy = Math.abs(t.clientY - sy);
-        if (dx > 8 || dy > 8) moved = true; // 스크롤로 판단
-      }, { passive: true });
-
-      el.addEventListener("touchend", (e) => {
-        // ✅ 스크롤이면 클릭 처리 금지
-        if (moved) return;
-        // ✅ 진짜 탭일 때만: 스크롤 방해하지 않도록 이때만 preventDefault
-        e.preventDefault();
-        onTap(e);
-      }, { passive: false });
-
-      // 데스크탑/일반 클릭
-      el.addEventListener("click", (e) => onTap(e));
-    }
-
-    /***********************
-     * Navigation
-     ***********************/
-    function switchScreen(id, skipPush = false, roomId = null) {
-      document.querySelectorAll('div[id^="screen-"]').forEach(s => s.classList.add('hidden'));
-      document.getElementById(id).classList.remove('hidden');
-
-      if (!skipPush) {
-        if (id === 'screen-room' && roomId) {
-          const newUrl = location.protocol + "//" + location.host + location.pathname + '?id=' + roomId;
-          history.pushState({ screen: id, roomId }, "", newUrl);
-        } else if (id === 'screen-main') {
-          const mainUrl = location.protocol + "//" + location.host + location.pathname;
-          history.pushState({ screen: id }, "", mainUrl);
-        } else {
-          const stateUrl = location.protocol + "//" + location.host + location.pathname + '#' + id;
-          history.pushState({ screen: id }, "", stateUrl);
-        }
-      }
-      window.scrollTo(0, 0);
-
-      // ✅ 방에서 투표 후 뒤로가기 했을 때 목록 즉시 반영
-      if (id === "screen-list" && listDirty) {
-        renderList();
-        listDirty = false;
-      }
-    }
-    window.switchScreen = switchScreen;
-
-    window.onpopstate = (e) => {
-      const state = e.state;
-      const url = new URL(location.href);
-      const rid = url.searchParams.get("id");
-      const hash = location.hash.replace('#','');
-
-      if (rid) {
-        enterRoom(rid, false, true);
-        return;
-      }
-      if (state?.screen === 'screen-room' && state.roomId) {
-        enterRoom(state.roomId, false, true);
-      } else if (hash === 'screen-list') {
-        switchScreen('screen-list', true);
-      } else if (hash === 'screen-create') {
-        openCreateScreen(true);
-      } else {
-        switchScreen('screen-main', true);
-      }
-    };
-
-    function handleBack() {
-      history.back();
-    }
-    window.handleBack = handleBack;
-
-    function goSearch() {
-      switchScreen('screen-list');
-      renderList();
-    }
-    window.goSearch = goSearch;
-
-    function copyLink() {
-      const url = location.protocol + "//" + location.host + location.pathname + "?id=" + currentRoomId;
-      if (navigator.clipboard?.writeText) {
-        navigator.clipboard.writeText(url).then(() => alert("링크가 복사되었습니다."));
-      } else {
-        const ta = document.createElement("textarea");
-        ta.value = url;
-        document.body.appendChild(ta);
-        ta.select();
-        document.execCommand("copy");
-        document.body.removeChild(ta);
-        alert("링크가 복사되었습니다.");
-      }
-    }
-    window.copyLink = copyLink;
-
-    /***********************
-     * Menu
-     ***********************/
-    function toggleMenu() {
-      const m = document.getElementById('side-menu');
-      const o = document.getElementById('menu-overlay');
-      const open = m.style.transform === 'translateX(0px)';
-      m.style.transform = open ? 'translateX(-100%)' : 'translateX(0px)';
-      o.style.display = open ? 'none' : 'block';
-    }
-    window.toggleMenu = toggleMenu;
-
-    function filterByCategory(c) {
-      currentCategory = c;
-      renderList();
-      toggleMenu();
-    }
-    window.filterByCategory = filterByCategory;
-
-    function showMyCreatedPolls() {
-      currentCategory = "내가 만든 투표";
-      renderList();
-      toggleMenu();
-    }
-    window.showMyCreatedPolls = showMyCreatedPolls;
-
-    /***********************
-     * Data sync
-     ***********************/
-    const roomsRef = db.ref('rooms');
-
-    roomsRef.on('value', (snap) => {
-      const v = snap.val();
-      allRooms = v ? Object.entries(v) : [];
-
-      const listVisible = !document.getElementById('screen-list').classList.contains('hidden');
-      const roomVisible = !document.getElementById('screen-room').classList.contains('hidden');
-
-      if (listVisible) renderList();
-      else listDirty = true;
-
-      // ✅ room 화면이면 Next for you가 비지 않게 추천도 갱신
-      if (roomVisible && currentRoomId) {
-        renderRecommendations(currentRoomId);
-      }
-    });
-
-    /***********************
-     * ✅ Soft refresh (빠른 새로고침: 리로드X, 데이터만 갱신)
-     ***********************/
-    async function softRefresh() {
-      try {
-        const snap = await roomsRef.once('value');
-        const v = snap.val();
-        allRooms = v ? Object.entries(v) : [];
-
-        const listVisible = !document.getElementById('screen-list').classList.contains('hidden');
-        const roomVisible = !document.getElementById('screen-room').classList.contains('hidden');
-
-        if (listVisible) renderList();
-        if (roomVisible && currentRoomId) renderRecommendations(currentRoomId);
-
-      } catch (e) {
-        // 최후 fallback
-        location.reload();
-      }
-    }
-
-    /***********************
-     * List rendering
-     ***********************/
-    function renderList() {
-      const listArea = document.getElementById('room-list');
-      const query = (document.getElementById('search-bar').value || "").toLowerCase().trim();
-      listArea.innerHTML = "";
-      document.getElementById('current-board-name').innerText = currentCategory;
-
-      const getHotScore = (room) => {
-        const total = sumVotesFromOptions(room?.poll?.options);
-        const hours = (Date.now() - (room.createdAt || Date.now())) / 3600000;
-        return total / Math.pow(hours + 2, 1.5);
-      };
-
-      const topHotIds = [...allRooms]
-        .sort((a, b) => getHotScore(b[1]) - getHotScore(a[1]))
-        .slice(0, 3)
-        .map(item => item[0]);
-
-      let displayRooms = [...allRooms];
-
-      if (currentCategory === "실시간 핫") {
-        displayRooms = displayRooms
-          .filter(([id, room]) => {
-            const total = sumVotesFromOptions(room?.poll?.options);
-            return (getHotScore(room) > 0.1 || topHotIds.includes(id)) && total > 0;
-          })
-          .sort((a, b) => getHotScore(b[1]) - getHotScore(a[1]));
-      } else if (currentCategory === "내가 만든 투표") {
-        displayRooms = displayRooms.filter(([id, room]) => room.creatorFingerprint === myFingerprint);
-      } else if (currentCategory !== "전체") {
-        displayRooms = displayRooms.filter(([id, room]) => (room.category || "일상/잡담") === currentCategory);
-      }
-
-      const filtered = displayRooms.filter(([id, room]) => (room.title || "").toLowerCase().includes(query));
-      if (currentCategory !== "실시간 핫") filtered.sort((a, b) => (b[1].createdAt || 0) - (a[1].createdAt || 0));
-
-      filtered.forEach(([id, room]) => {
-        const totalVotes = sumVotesFromOptions(room?.poll?.options);
-        const timeText = room.createdAt ? getTimeAgo(room.createdAt) : "오래전";
-
-        const isHot = (getHotScore(room) > 0.1 || topHotIds.includes(id)) && totalVotes > 0;
-        const hotBadge = isHot
-          ? `<span class="ml-2 inline-block text-[9px] font-black text-red-500 italic tracking-tighter border border-red-200 px-1.5 py-0.5 rounded-md bg-red-50 animate-pulse uppercase">HOT</span>`
-          : '';
-
-        const div = document.createElement('div');
-        div.className = "vote-card bg-white p-6 rounded-[2rem] shadow-sm clickable hover:ring-2 hover:ring-indigo-500";
-
-        // ✅ 스크롤은 스크롤대로, 탭만 enterRoom
-        attachTap(div, () => enterRoom(id, false));
-
-        div.innerHTML =
-          `<div class="flex justify-between items-start mb-3">
-              <span class="text-[9px] font-black text-indigo-500 uppercase tracking-widest">${room.category || '일상/잡담'}</span>
-              ${hotBadge}
-           </div>
-           <div class="text-lg font-bold text-gray-900 mb-3 leading-tight min-h-[3rem]">${escapeHtml(room.title || '')}</div>
-           <div class="pt-4 border-t border-gray-50 flex justify-between items-center">
-              <span class="text-[10px] text-gray-400 font-bold uppercase tracking-wide">${totalVotes} Votes</span>
-              <span class="text-[10px] text-gray-300 font-bold uppercase">${timeText}</span>
-           </div>`;
-        listArea.appendChild(div);
-      });
-    }
-    window.renderList = renderList;
-
-    /***********************
-     * Enter room
-     ***********************/
-    function enterRoom(id, isFromCreate = false, skipPush = false) {
-      currentRoomId = id;
-      switchScreen('screen-room', skipPush, id);
-
-      if (roomListenerRef) roomListenerRef.off();
-      roomListenerRef = db.ref(`rooms/${id}`);
-
-      roomListenerRef.on('value', (snap) => {
-        const data = snap.val();
-        if (!data) return;
-
-        document.getElementById('room-display-name').innerText = data.title || "";
-        document.getElementById('room-display-desc').innerText = data.desc || "";
-        document.getElementById('room-display-cat').innerText = data.category || "일상/잡담";
-
-        const timeText = data.createdAt ? `${formatExactDate(data.createdAt)} (${getTimeAgo(data.createdAt)})` : "오래전";
-        document.getElementById('room-display-date').innerText = `POSTED ON ${timeText}`;
-
-        const safeVotedIPs = (data.votedIPs && typeof data.votedIPs === "object") ? data.votedIPs : {};
-        renderPoll(data.poll || {}, safeVotedIPs);
-
-        renderRecommendations(id);
-      });
-    }
-    window.enterRoom = enterRoom;
-
-    function renderRecommendations(excludeId) {
-      const area = document.getElementById('recommend-list');
-      area.innerHTML = "";
-
-      const recs = allRooms
-        .filter(([id]) => id !== excludeId)
-        .sort(() => 0.5 - Math.random())
-        .slice(0, 3);
-
-      recs.forEach(([id, room]) => {
-        const d = document.createElement('div');
-        d.className = "bg-gray-50 p-5 rounded-2xl clickable border border-gray-100 hover:bg-white hover:ring-1 hover:ring-indigo-200 transition-all";
-
-        // ✅ 스크롤 방해 없이 탭만 이동
-        attachTap(d, (e) => {
-          if (e?.stopPropagation) e.stopPropagation();
-          enterRoom(id, false);
-        });
-
-        d.innerHTML =
-          `<div class="text-[8px] font-black text-indigo-400 uppercase mb-1">${room.category || '일상/잡담'}</div>
-           <div class="text-sm font-bold text-gray-800 leading-snug">${escapeHtml(room.title || '')}</div>`;
-        area.appendChild(d);
-      });
-    }
-
-    /***********************
-     * Create / Edit / Delete
-     ***********************/
-    function openCreateScreen(skipPush = false) {
-      isEditMode = false;
-      document.getElementById('create-title').innerText = "New Post";
-      document.getElementById('new-room-name').value = "";
-      document.getElementById('new-room-desc').value = "";
-      document.getElementById('new-room-pw').value = "";
-      document.getElementById('pw-field-container').style.display = "block";
-
-      document.getElementById('options-list').innerHTML = "";
-      addOptionField(); addOptionField();
-      switchScreen('screen-create', skipPush);
-    }
-    window.openCreateScreen = openCreateScreen;
-
-    function addOptionField(val = "") {
-      const list = document.getElementById('options-list');
-      const container = document.createElement('div');
-      container.className = "flex items-center space-x-2 mb-2";
-
-      const input = document.createElement('input');
-      input.type = "text";
-      input.className = "poll-input flex-1 bg-gray-50 rounded-lg p-3 text-sm";
-      input.placeholder = `선택지 ${list.children.length + 1}`;
-      input.value = val;
-
-      const delBtn = document.createElement('button');
-      delBtn.innerHTML = "✕";
-      delBtn.className = "w-10 h-10 flex items-center justify-center bg-gray-100 text-gray-400 rounded-lg font-bold clickable";
-      delBtn.addEventListener("click", () => { if (list.children.length > 1) container.remove(); });
-
-      container.appendChild(input);
-      container.appendChild(delBtn);
-      list.appendChild(container);
-    }
-    window.addOptionField = addOptionField;
-
-    function processCreate() {
-      if (!isSecureAccess()) return alert("비정상적인 접근이 감지되었습니다.");
-
-      const title = (document.getElementById('new-room-name').value || "").trim();
-      const category = document.getElementById('new-room-cat').value;
-      const desc = (document.getElementById('new-room-desc').value || "").trim();
-
-      if (!title) return alert("제목을 입력하세요.");
-
-      const inputs = document.querySelectorAll('.poll-input');
-      const options = {};
-      let hasOption = false;
-
-      inputs.forEach(i => {
-        const v = (i.value || "").trim();
-        if (v) { options[v] = 0; hasOption = true; }
-      });
-      if (!hasOption) return alert("최소 한 개의 선택지가 필요합니다.");
-
-      if (isEditMode) {
-        db.ref(`rooms/${currentRoomId}`).update({
-          title, category, desc,
-          poll: { options }
-        }).then(() => {
-          alert("성공적으로 수정되었습니다.");
-          isEditMode = false;
-          enterRoom(currentRoomId, true, true);
-        });
-        return;
-      }
-
-      const pw = (document.getElementById('new-room-pw').value || "").trim();
-      if (!pw) return alert("비밀번호를 입력하세요.");
-
-      const id = 'r_' + Date.now();
-      db.ref(`rooms/${id}`).set({
-        title, pw, desc, category,
-        poll: { options },
-        votedIPs: {},
-        createdAt: Date.now(),
-        creatorFingerprint: myFingerprint
-      }).then(() => {
-        enterRoom(id, true, true);
-      });
-    }
-    window.processCreate = processCreate;
-
-    /***********************
-     * Auth modal (edit/delete)
-     ***********************/
-    function openAuthModal(type) {
-      const modal = document.getElementById('auth-modal');
-      const input = document.getElementById('modal-pw-input');
-      input.value = "";
-      modal.style.display = 'flex';
-
-      if (type === 'edit') {
-        document.getElementById('modal-title').innerText = "수정 확인";
-        document.getElementById('modal-submit-btn').onclick = () => handleEditAuth();
-      } else {
-        document.getElementById('modal-title').innerText = "투표 삭제";
-        document.getElementById('modal-submit-btn').onclick = () => handleDeleteAuth();
-      }
-    }
-    window.openAuthModal = openAuthModal;
-
-    function closeAuthModal() {
-      document.getElementById('auth-modal').style.display = 'none';
-    }
-    window.closeAuthModal = closeAuthModal;
-
-    function handleEditAuth() {
-      const inputPw = (document.getElementById('modal-pw-input').value || "").trim();
-      db.ref(`rooms/${currentRoomId}`).get().then((snap) => {
-        const data = snap.val();
-        if (!data) return alert("데이터가 없습니다.");
-
-        if (String(data.pw || "").trim() === inputPw) {
-          isEditMode = true;
-          closeAuthModal();
-          switchScreen('screen-create');
-
-          document.getElementById('create-title').innerText = "Edit Post";
-          document.getElementById('new-room-name').value = data.title || "";
-          document.getElementById('new-room-desc').value = data.desc || "";
-          document.getElementById('new-room-cat').value = data.category || "일상/잡담";
-
-          document.getElementById('pw-field-container').style.display = "none";
-
-          document.getElementById('options-list').innerHTML = "";
-          const opts = data?.poll?.options || {};
-          Object.keys(opts).forEach((label) => addOptionField(label));
-        } else {
-          alert("비밀번호가 틀렸습니다.");
-        }
-      });
-    }
-
-    function handleDeleteAuth() {
-      const inputPw = (document.getElementById('modal-pw-input').value || "").trim();
-      db.ref(`rooms/${currentRoomId}`).get().then((snap) => {
-        const data = snap.val();
-        if (!data) return alert("데이터가 없습니다.");
-
-        if (String(data.pw || "").trim() === inputPw) {
-          db.ref(`rooms/${currentRoomId}`).remove().then(() => {
-            alert("삭제되었습니다.");
-            closeAuthModal();
-            switchScreen('screen-main');
-          });
-        } else {
-          alert("틀렸습니다.");
-        }
-      });
-    }
-
-    /***********************
-     * Poll rendering + 투표 트랜잭션
-     ***********************/
-    function renderPoll(poll, votedIPs) {
-      const area = document.getElementById('poll-display-area');
-      area.innerHTML = "";
-
-      const options = (poll && poll.options && typeof poll.options === "object") ? poll.options : {};
-      const total = sumVotesFromOptions(options);
-
-      const safeVotedIPs = (votedIPs && typeof votedIPs === "object") ? votedIPs : {};
-      const myVote = (myFingerprint && safeVotedIPs) ? safeVotedIPs[myFingerprint] : null;
-
-      Object.entries(options).forEach(([label, count]) => {
-        // ✅ "괜찮다" 안보이던 문제 해결: 필터 제거 (그대로 보여줌)
-
-        const per = total === 0 ? 0 : Math.round((Number(count) / total) * 100);
-
-        const div = document.createElement('div');
-        div.className =
-          `relative h-16 rounded-2xl overflow-hidden bg-gray-50 border border-gray-100 mb-3 clickable ` +
-          `${myVote === label ? 'ring-2 ring-indigo-500 bg-white shadow-md' : ''}`;
-
-        const doVote = async () => {
-          if (!isSecureAccess()) return;
-          if (!fpReady || !myFingerprint) return alert("식별값을 불러오는 중입니다. 잠시만 기다려주세요.");
-          if (votingLock) return;
-
-          votingLock = true;
-          try {
-            const roomRef = db.ref(`rooms/${currentRoomId}`);
-
-            await roomRef.transaction((roomData) => {
-              if (!roomData) return roomData;
-
-              if (!roomData.votedIPs || typeof roomData.votedIPs !== "object") roomData.votedIPs = {};
-              if (!roomData.poll) roomData.poll = {};
-              if (!roomData.poll.options || typeof roomData.poll.options !== "object") roomData.poll.options = {};
-
-              const currentChoice = roomData.votedIPs[myFingerprint];
-
-              if (currentChoice === label) {
-                roomData.poll.options[label] = Math.max(0, (Number(roomData.poll.options[label]) || 0) - 1);
-                delete roomData.votedIPs[myFingerprint];
-              } else if (currentChoice) {
-                if (roomData.poll.options[currentChoice] !== undefined) {
-                  roomData.poll.options[currentChoice] = Math.max(0, (Number(roomData.poll.options[currentChoice]) || 0) - 1);
-                }
-                roomData.poll.options[label] = (Number(roomData.poll.options[label]) || 0) + 1;
-                roomData.votedIPs[myFingerprint] = label;
-              } else {
-                roomData.poll.options[label] = (Number(roomData.poll.options[label]) || 0) + 1;
-                roomData.votedIPs[myFingerprint] = label;
-              }
-
-              return roomData;
-            }, undefined, false);
-
-            // ✅ 목록 투표수 즉시 반영 플래그
-            listDirty = true;
-
-          } catch (err) {
-            console.error(err);
-            alert("네트워크/권한 문제로 투표가 실패했습니다.\n(카톡이면 우측 상단 ⋮ → 브라우저에서 열기 권장)");
-          } finally {
-            votingLock = false;
-          }
-        };
-
-        // ✅ 스크롤 방해 없이 탭만 투표
-        attachTap(div, () => doVote());
-
-        const countDisplay = total > 0
-          ? `<div class="flex items-center space-x-2 text-[11px] font-bold">
-                <span class="text-indigo-600">${per}%</span>
-                <span class="text-gray-200 font-light">|</span>
-                <span class="text-gray-400">${Number(count)} <span class="text-[9px] opacity-70">of</span> ${total}</span>
-             </div>`
-          : `<span class="text-gray-300 text-[11px] font-bold">0%</span>`;
-
-        div.innerHTML =
-          `<div class="vote-bar absolute bg-indigo-500 h-full opacity-[0.08]" style="width:${per}%"></div>
-           <div class="absolute inset-0 flex justify-between px-6 items-center font-bold pointer-events-none">
-              <span class="${myVote === label ? 'text-indigo-700' : 'text-gray-700'} text-sm">${escapeHtml(label)}</span>
-              ${countDisplay}
-           </div>`;
-        area.appendChild(div);
-      });
-    }
-
-    /***********************
-     * ✅ Pull-to-refresh (당겨서 데이터 새로고침)
-     ***********************/
-    (function setupPullToRefresh() {
-      const ptrWrap = document.getElementById("ptr-wrap");
-      const ptrIcon = document.getElementById("ptr-icon");
-
-      let startY = 0;
-      let pulling = false;
-      let dist = 0;
-      let triggered = false;
-
-      const MAX_DIST = 120;   // 최대 당김
-      const TRIGGER = 78;     // 발동 거리
-      const ICON_SHOW_Y = 72; // 노출 영역 높이
-
-      function setPTRVisible(v) {
-        if (v) {
-          ptrWrap.style.opacity = "1";
-          ptrWrap.style.transform = "translateY(0px)";
-        } else {
-          ptrWrap.style.opacity = "0";
-          ptrWrap.style.transform = `translateY(-${ICON_SHOW_Y}px)`;
-        }
-      }
-
-      function setRotationByDist(d) {
-        const ratio = Math.max(0, Math.min(1, d / TRIGGER));
-        const deg = Math.round(ratio * 360);
-        ptrIcon.style.transform = `rotate(${deg}deg)`;
-      }
-
-      function resetPTR() {
-        triggered = false;
-        pulling = false;
-        dist = 0;
-        // 손 놓으면 반대로 "풀리며" 돌아가게: 0도로 복귀
-        ptrIcon.style.transform = "rotate(0deg)";
-        setPTRVisible(false);
-      }
-
-      // 입력 중에는 방해하지 않음
-      function isTypingTarget(el) {
-        if (!el) return false;
-        const tag = (el.tagName || "").toLowerCase();
-        return tag === "input" || tag === "textarea" || el.isContentEditable;
-      }
-
-      window.addEventListener("touchstart", (e) => {
-        if (window.scrollY !== 0) return;
-        if (!e.touches || e.touches.length !== 1) return;
-        if (isTypingTarget(e.target)) return;
-
-        startY = e.touches[0].clientY;
-        pulling = true;
-        triggered = false;
-        dist = 0;
-
-      }, { passive: true });
-
-      window.addEventListener("touchmove", (e) => {
-        if (!pulling) return;
-        if (!e.touches || e.touches.length !== 1) return;
-
-        const y = e.touches[0].clientY;
-        const raw = y - startY;
-        if (raw <= 0) {
-          // 위로 올리면 풀리기
-          dist = 0;
-          setRotationByDist(0);
-          setPTRVisible(false);
-          return;
-        }
-
-        // 아래로 당기는 중: 스크롤 대신 PTR
-        dist = Math.min(MAX_DIST, raw);
-        setPTRVisible(true);
-        setRotationByDist(dist);
-
-        // ✅ 이 경우에만 기본 스크롤/바운스를 막음 (리스트 스크롤 버그랑 분리)
-        e.preventDefault();
-      }, { passive: false });
-
-      window.addEventListener("touchend", async () => {
-        if (!pulling) return;
-
-        if (dist >= TRIGGER && !triggered) {
-          triggered = true;
-
-          // 발동: 한 바퀴 완성 후 softRefresh
-          ptrIcon.style.transform = "rotate(360deg)";
-
-          try {
-            await softRefresh();
-          } finally {
-            resetPTR();
-          }
-        } else {
-          // 발동 안하면 자연 복귀(반대로 풀리는 느낌은 0도로 돌아가며 구현)
-          resetPTR();
-        }
-      }, { passive: true });
-    })();
-
-    /***********************
-     * Boot: URL param 처리
-     ***********************/
-    (function boot() {
-      if (document.getElementById('options-list').children.length === 0) {
-        addOptionField();
-        addOptionField();
-      }
-
-      const url = new URL(location.href);
-      const rid = url.searchParams.get("id");
-      const hash = location.hash.replace("#", "");
-
-      if (rid) {
-        enterRoom(rid, false, true);
-      } else if (hash === "screen-list") {
-        switchScreen("screen-list", true);
-        renderList();
-      } else if (hash === "screen-create") {
-        openCreateScreen(true);
-      } else {
-        switchScreen("screen-main", true);
-      }
-    })();
-  </script>
+<body class="bg-white text-gray-900">
+
+<input type="text" id="hp_nickname" style="position:absolute;left:-9999px;opacity:0">
+
+<div id="screen-main" class="h-screen flex flex-col justify-center items-center space-y-6">
+  <h1 class="text-6xl font-black italic">STAY.</h1>
+  <button onclick="openCreateScreen()" class="px-6 py-4 rounded-xl bg-indigo-600 text-white font-bold">새 투표 만들기</button>
+  <button onclick="goSearch()" class="px-6 py-4 rounded-xl bg-gray-100 font-bold">전체 투표</button>
+</div>
+
+<div id="screen-list" class="hidden min-h-screen p-4">
+  <h2 class="text-xl font-black mb-4">전체 투표</h2>
+  <div id="room-list" class="space-y-4"></div>
+</div>
+
+<div id="screen-create" class="hidden min-h-screen p-4">
+  <h2 class="text-xl font-black mb-4">새 투표</h2>
+  <input id="new-room-name" class="w-full p-3 mb-2 bg-gray-100 rounded" placeholder="제목">
+  <textarea id="new-room-desc" class="w-full p-3 mb-2 bg-gray-100 rounded" placeholder="설명"></textarea>
+  <input id="new-room-pw" class="w-full p-3 mb-2 bg-gray-100 rounded" placeholder="비밀번호">
+  <div id="options-list"></div>
+  <button onclick="addOptionField()" class="text-sm text-indigo-600">+ 선택지 추가</button>
+  <button onclick="processCreate()" class="w-full mt-4 bg-indigo-600 text-white py-3 rounded font-bold">게시</button>
+</div>
+
+<div id="screen-room" class="hidden min-h-screen p-4">
+  <button onclick="history.back()" class="text-sm mb-2">← 뒤로</button>
+  <h2 id="room-title" class="text-2xl font-black"></h2>
+  <p id="room-desc" class="text-gray-500 mb-6"></p>
+  <div id="poll-display-area" class="space-y-3"></div>
+</div>
+
+<script>
+/* ======================
+   🔐 stay_uid (유일 식별자)
+====================== */
+const STAY_UID_KEY = "stay_uid";
+let myUID = localStorage.getItem(STAY_UID_KEY);
+if (!myUID) {
+  myUID = "u_" + Math.random().toString(36).slice(2) + Date.now();
+  localStorage.setItem(STAY_UID_KEY, myUID);
+}
+
+/* ======================
+   Firebase
+====================== */
+firebase.initializeApp({
+  apiKey: "AIzaSyAgydW97uyDPNqs5VPZnSt5E-fytezqVO0",
+  databaseURL: "https://project-8611780166111781402-default-rtdb.firebaseio.com"
+});
+const db = firebase.database();
+
+let allRooms = [];
+let currentRoomId = "";
+let listDirty = false;
+
+/* ======================
+   Navigation
+====================== */
+function switchScreen(id) {
+  document.querySelectorAll("[id^=screen-]").forEach(d => d.classList.add("hidden"));
+  document.getElementById(id).classList.remove("hidden");
+  if (id === "screen-list" && listDirty) {
+    renderList();
+    listDirty = false;
+  }
+}
+function goSearch(){ switchScreen("screen-list"); renderList(); }
+function openCreateScreen(){
+  document.getElementById("options-list").innerHTML="";
+  addOptionField(); addOptionField();
+  switchScreen("screen-create");
+}
+
+/* ======================
+   Data sync
+====================== */
+db.ref("rooms").on("value", snap=>{
+  allRooms = snap.val() ? Object.entries(snap.val()) : [];
+  if (!document.getElementById("screen-list").classList.contains("hidden")) renderList();
+});
+
+/* ======================
+   List
+====================== */
+function renderList(){
+  const area=document.getElementById("room-list");
+  area.innerHTML="";
+  allRooms.forEach(([id,room])=>{
+    const total=Object.values(room.poll?.options||{}).reduce((a,b)=>a+Number(b),0);
+    const div=document.createElement("div");
+    div.className="p-4 bg-gray-50 rounded clickable";
+    div.onclick=()=>enterRoom(id);
+    div.innerHTML=`<b>${room.title}</b><div class="text-sm text-gray-400">${total} votes</div>`;
+    area.appendChild(div);
+  });
+}
+
+/* ======================
+   Room
+====================== */
+function enterRoom(id){
+  currentRoomId=id;
+  switchScreen("screen-room");
+  db.ref("rooms/"+id).on("value",snap=>{
+    const d=snap.val();
+    document.getElementById("room-title").innerText=d.title;
+    document.getElementById("room-desc").innerText=d.desc||"";
+    renderPoll(d.poll||{}, d.votedIPs||{});
+  });
+}
+
+/* ======================
+   Poll
+====================== */
+function renderPoll(poll, votedIPs){
+  const area=document.getElementById("poll-display-area");
+  area.innerHTML="";
+  const opts=poll.options||{};
+  const total=Object.values(opts).reduce((a,b)=>a+Number(b),0);
+  Object.entries(opts).forEach(([label,count])=>{
+    const div=document.createElement("div");
+    div.className="p-4 bg-gray-100 rounded clickable";
+    div.onclick=()=>vote(label);
+    div.innerHTML=`${label} (${count}/${total})`;
+    area.appendChild(div);
+  });
+}
+
+function vote(label){
+  db.ref("rooms/"+currentRoomId).transaction(room=>{
+    if(!room) return room;
+    room.votedIPs ||= {};
+    room.poll ||= {options:{}};
+    const prev = room.votedIPs[myUID];
+    if(prev) room.poll.options[prev]--;
+    room.poll.options[label]=(room.poll.options[label]||0)+1;
+    room.votedIPs[myUID]=label;
+    return room;
+  });
+  listDirty = true;
+}
+
+/* ======================
+   Create
+====================== */
+function addOptionField(){
+  const d=document.createElement("input");
+  d.className="w-full p-2 mb-2 bg-gray-100 rounded poll-input";
+  d.placeholder="선택지";
+  document.getElementById("options-list").appendChild(d);
+}
+
+function processCreate(){
+  const title=document.getElementById("new-room-name").value.trim();
+  if(!title) return alert("제목을 입력하세요");
+  const opts={};
+  document.querySelectorAll(".poll-input").forEach(i=>{
+    if(i.value.trim()) opts[i.value.trim()]=0;
+  });
+  const id="r_"+Date.now();
+  db.ref("rooms/"+id).set({
+    title,
+    desc:document.getElementById("new-room-desc").value,
+    pw:document.getElementById("new-room-pw").value,
+    poll:{options:opts},
+    votedIPs:{},
+    creatorFingerprint: myUID,
+    createdAt:Date.now()
+  }).then(()=>enterRoom(id));
+}
+</script>
 </body>
 </html>
-
-
