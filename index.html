@@ -18,7 +18,7 @@
   <!-- Tailwind -->
   <script src="https://cdn.tailwindcss.com"></script>
 
-  <!-- FingerprintJS (유지) -->
+  <!-- FingerprintJS -->
   <script src="https://openfpcdn.io/fingerprintjs/v4/iife.min.js"></script>
 
   <!-- Firebase compat -->
@@ -27,10 +27,6 @@
 
   <style>
     @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700;900&display=swap');
-
-    html, body {
-      height: 100%;
-    }
 
     body {
       font-family: 'Inter', sans-serif;
@@ -42,7 +38,6 @@
       position: relative;
       width: 100%;
       transform-origin: top;
-      touch-action: pan-y; /* ✅ 스크롤 우선 */
     }
 
     .glass { background: rgba(255, 255, 255, 0.98); backdrop-filter: blur(15px); border-bottom: 1px solid #f3f4f6; }
@@ -51,11 +46,19 @@
     div[id^="screen-"] { animation: fadeIn 0.2s ease-out; }
     @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
 
-    .vote-card { transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1); border: 1px solid #f3f4f6; }
-    @media (hover: hover) {
-      .vote-card:hover { transform: translateY(-8px); box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.08); border-color: #6366f1; }
+    .vote-card {
+      transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+      border: 1px solid #f3f4f6;
     }
-    .vote-card:active { transform: scale(0.985); }
+    @media (hover: hover) {
+      .vote-card:hover {
+        transform: translateY(-8px);
+        box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.08);
+        border-color: #6366f1;
+      }
+    }
+    .vote-card:active { transform: scale(0.97); }
+
     .vote-bar { transition: width 0.8s cubic-bezier(0.34, 1.56, 0.64, 1); }
 
     #side-menu {
@@ -64,7 +67,6 @@
       transform: translateX(-100%);
       transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);
       box-shadow: 20px 0 50px rgba(0,0,0,0.1);
-      will-change: transform;
     }
     #menu-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.5); z-index: 10000; display: none; }
 
@@ -78,62 +80,49 @@
 
     .hp-field { position: absolute; left: -9999px; top: -9999px; opacity: 0; }
 
-    .clickable { cursor: pointer; -webkit-user-select: none; user-select: none; }
+    .clickable { cursor: pointer; }
 
-    /* ===========================
-       ✅ Pull-to-refresh UI
-       =========================== */
+    /* ✅ Pull-to-refresh UI (당겼을 때 노출되는 흰부분 영역에 표시) */
     #ptr-wrap {
       position: fixed;
       top: 0;
       left: 0;
       width: 100%;
-      height: 64px;
+      height: 72px;
       display: flex;
       align-items: center;
       justify-content: center;
-      z-index: 9999;
+      z-index: 99999;
       pointer-events: none;
       opacity: 0;
-      transform: translateY(-64px);
-      transition: opacity 0.15s ease, transform 0.15s ease;
-      background: #ffffff; /* 당겼을 때 노출되는 흰부분 */
+      transform: translateY(-72px);
+      transition: opacity 0.12s ease, transform 0.12s ease;
+      background: transparent;
     }
     #ptr-icon {
-      width: 26px;
-      height: 26px;
+      width: 28px; height: 28px;
       fill: none;
       stroke: #4f46e5;
       stroke-width: 2.5;
       stroke-linecap: round;
       stroke-linejoin: round;
       transform: rotate(0deg);
-      transition: transform 0.05s linear;
-    }
-    #ptr-icon path { vector-effect: non-scaling-stroke; }
-    .ptr-show {
-      opacity: 1 !important;
-      transform: translateY(0) !important;
-    }
-
-    /* screen containers */
-    #screen-list, #screen-room, #screen-create {
-      -webkit-overflow-scrolling: touch;
+      transition: transform 0.06s linear;
     }
   </style>
 </head>
 
 <body>
-  <!-- Pull to refresh -->
-  <div id="ptr-wrap" aria-hidden="true">
-    <svg id="ptr-icon" viewBox="0 0 24 24">
-      <path d="M23 4v6h-6M1 20v-6h6"></path>
-      <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"></path>
-    </svg>
-  </div>
-
   <!-- 허니팟 -->
   <input type="text" id="hp_nickname" class="hp-field" tabindex="-1" autocomplete="off" />
+
+  <!-- ✅ Pull-to-refresh icon -->
+  <div id="ptr-wrap">
+    <svg id="ptr-icon" viewBox="0 0 24 24">
+      <path d="M23 4v6h-6M1 20v-6h6"/>
+      <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/>
+    </svg>
+  </div>
 
   <!-- Auth modal -->
   <div id="auth-modal">
@@ -267,53 +256,35 @@
     let currentCategory = "전체";
     let isEditMode = false;
 
-    let myFingerprint = "";
-    let fpReady = false;
+    // ✅ "업데이트 후 내가 만든 투표가 사라짐" 완화: 항상 안정적인 localStorage ID를 기본으로 사용
+    // - FP는 성공하면 같은 키에 "업그레이드"로 덮어쓰기(변하지 않게 저장)
+    const STAY_ID_KEY = "stay_user_id";
 
+    let myFingerprint = localStorage.getItem(STAY_ID_KEY) || ("u_" + Math.random().toString(36).slice(2, 11));
+    localStorage.setItem(STAY_ID_KEY, myFingerprint);
+
+    let fpReady = true; // 기본 ID는 즉시 준비됨
     let votingLock = false;
-    let roomListenerRef = null;
 
-    let listDirty = false;
-
-    /***********************
-     * Stable identity
-     ***********************/
-    function getOrCreateUID() {
-      let uid = localStorage.getItem("stay_uid");
-      if (uid) return uid;
-      uid = "u_" + Math.random().toString(36).slice(2, 11);
-      localStorage.setItem("stay_uid", uid);
-      return uid;
-    }
-    function rememberMyPoll(id) {
-      const key = "stay_my_polls";
-      let arr = [];
-      try { arr = JSON.parse(localStorage.getItem(key) || "[]"); } catch { arr = []; }
-      if (!arr.includes(id)) arr.push(id);
-      localStorage.setItem(key, JSON.stringify(arr));
-    }
-    function getMyPollIds() {
-      try { return JSON.parse(localStorage.getItem("stay_my_polls") || "[]"); }
-      catch { return []; }
-    }
-
-    (async function setStableIdentity() {
-      myFingerprint = getOrCreateUID();
-      fpReady = true;
-      // FPJS는 필요하면 별도로
-      // try { const fp = await window.FingerprintJS.load(); const res = await fp.get(); window.__fp = res.visitorId; } catch(_) {}
-    })();
+    let roomListenerRef = null; // enterRoom 중복 리스너 방지
+    let listDirty = false;      // ✅ 방에서 변경 발생 시 목록 즉시 반영용
 
     /***********************
      * Helpers
      ***********************/
+    function isKakaoInApp() {
+      return /KAKAOTALK/i.test(navigator.userAgent || "");
+    }
+
     function isSecureAccess() {
       return document.getElementById('hp_nickname').value === "";
     }
+
     function sumVotesFromOptions(options) {
       if (!options || typeof options !== "object") return 0;
       return Object.values(options).reduce((a, b) => Number(a) + Number(b), 0);
     }
+
     function getTimeAgo(ts) {
       const sec = Math.floor((Date.now() - ts) / 1000);
       if (sec < 60) return "방금 전";
@@ -321,10 +292,12 @@
       if (sec < 86400) return Math.floor(sec/3600) + "시간 전";
       return Math.floor(sec/86400) + "일 전";
     }
+
     function formatExactDate(ts) {
       const d = new Date(ts);
       return `${d.getMonth() + 1}.${d.getDate()} ${String(d.getHours()).padStart(2,'0')}:${String(d.getMinutes()).padStart(2,'0')}`;
     }
+
     function escapeHtml(str) {
       return String(str)
         .replaceAll("&", "&amp;")
@@ -332,6 +305,67 @@
         .replaceAll(">", "&gt;")
         .replaceAll('"', "&quot;")
         .replaceAll("'", "&#039;");
+    }
+
+    /***********************
+     * ✅ Fingerprint: "가능하면 업그레이드"만 (기본은 localStorage ID)
+     ***********************/
+    (async function tryUpgradeFingerprint() {
+      // 카톡 인앱에서는 FP가 종종 느리거나 막혀서 "업그레이드 시도"만 짧게 함
+      const timeoutMs = isKakaoInApp() ? 1200 : 3000;
+
+      try {
+        const fp = await Promise.race([
+          window.FingerprintJS.load(),
+          new Promise((_, rej) => setTimeout(() => rej(new Error("fp_timeout")), timeoutMs))
+        ]);
+        const res = await Promise.race([
+          fp.get(),
+          new Promise((_, rej) => setTimeout(() => rej(new Error("fp_get_timeout")), timeoutMs))
+        ]);
+
+        if (res?.visitorId) {
+          // ✅ 업그레이드: 같은 키에 저장 → 업데이트/새로고침해도 "내가 만든 투표" 유지
+          myFingerprint = res.visitorId;
+          localStorage.setItem(STAY_ID_KEY, myFingerprint);
+          fpReady = true;
+        }
+      } catch (_) {
+        // 실패해도 기본 ID로 계속 동작 (클릭 먹통 방지)
+      }
+    })();
+
+    /***********************
+     * ✅ Tap vs Scroll 구분 (모바일 스크롤이 클릭으로 먹히는 버그 해결 핵심)
+     ***********************/
+    function attachTap(el, onTap) {
+      let sx = 0, sy = 0, moved = false;
+
+      el.addEventListener("touchstart", (e) => {
+        if (!e.touches || e.touches.length !== 1) return;
+        const t = e.touches[0];
+        sx = t.clientX; sy = t.clientY;
+        moved = false;
+      }, { passive: true });
+
+      el.addEventListener("touchmove", (e) => {
+        if (!e.touches || e.touches.length !== 1) return;
+        const t = e.touches[0];
+        const dx = Math.abs(t.clientX - sx);
+        const dy = Math.abs(t.clientY - sy);
+        if (dx > 8 || dy > 8) moved = true; // 스크롤로 판단
+      }, { passive: true });
+
+      el.addEventListener("touchend", (e) => {
+        // ✅ 스크롤이면 클릭 처리 금지
+        if (moved) return;
+        // ✅ 진짜 탭일 때만: 스크롤 방해하지 않도록 이때만 preventDefault
+        e.preventDefault();
+        onTap(e);
+      }, { passive: false });
+
+      // 데스크탑/일반 클릭
+      el.addEventListener("click", (e) => onTap(e));
     }
 
     /***********************
@@ -353,13 +387,13 @@
           history.pushState({ screen: id }, "", stateUrl);
         }
       }
-
-      if (id === 'screen-list') {
-        if (listDirty) { renderList(); listDirty = false; }
-        else { renderList(); }
-      }
-
       window.scrollTo(0, 0);
+
+      // ✅ 방에서 투표 후 뒤로가기 했을 때 목록 즉시 반영
+      if (id === "screen-list" && listDirty) {
+        renderList();
+        listDirty = false;
+      }
     }
     window.switchScreen = switchScreen;
 
@@ -369,8 +403,10 @@
       const rid = url.searchParams.get("id");
       const hash = location.hash.replace('#','');
 
-      if (rid) { enterRoom(rid, false, true); return; }
-
+      if (rid) {
+        enterRoom(rid, false, true);
+        return;
+      }
       if (state?.screen === 'screen-room' && state.roomId) {
         enterRoom(state.roomId, false, true);
       } else if (hash === 'screen-list') {
@@ -382,10 +418,15 @@
       }
     };
 
-    function handleBack() { history.back(); }
+    function handleBack() {
+      history.back();
+    }
     window.handleBack = handleBack;
 
-    function goSearch() { switchScreen('screen-list'); }
+    function goSearch() {
+      switchScreen('screen-list');
+      renderList();
+    }
     window.goSearch = goSearch;
 
     function copyLink() {
@@ -416,148 +457,60 @@
     }
     window.toggleMenu = toggleMenu;
 
-    function filterByCategory(c) { currentCategory = c; renderList(); toggleMenu(); }
+    function filterByCategory(c) {
+      currentCategory = c;
+      renderList();
+      toggleMenu();
+    }
     window.filterByCategory = filterByCategory;
 
-    function showMyCreatedPolls() { currentCategory = "내가 만든 투표"; renderList(); toggleMenu(); }
+    function showMyCreatedPolls() {
+      currentCategory = "내가 만든 투표";
+      renderList();
+      toggleMenu();
+    }
     window.showMyCreatedPolls = showMyCreatedPolls;
 
     /***********************
      * Data sync
      ***********************/
     const roomsRef = db.ref('rooms');
+
     roomsRef.on('value', (snap) => {
       const v = snap.val();
       allRooms = v ? Object.entries(v) : [];
-      if (!document.getElementById('screen-list').classList.contains('hidden')) renderList();
+
+      const listVisible = !document.getElementById('screen-list').classList.contains('hidden');
+      const roomVisible = !document.getElementById('screen-room').classList.contains('hidden');
+
+      if (listVisible) renderList();
       else listDirty = true;
+
+      // ✅ room 화면이면 Next for you가 비지 않게 추천도 갱신
+      if (roomVisible && currentRoomId) {
+        renderRecommendations(currentRoomId);
+      }
     });
 
     /***********************
-     * ✅ Pull-to-refresh (모바일 전용 느낌)
-     * - 최상단에서 아래로 당기면 아이콘 노출
-     * - 회전 최대 360도
-     * - 되돌리면 역회전
-     * - 임계치 넘으면 location.reload()
+     * ✅ Soft refresh (빠른 새로고침: 리로드X, 데이터만 갱신)
      ***********************/
-    (function setupPullToRefresh() {
-      const wrap = document.getElementById("ptr-wrap");
-      const icon = document.getElementById("ptr-icon");
+    async function softRefresh() {
+      try {
+        const snap = await roomsRef.once('value');
+        const v = snap.val();
+        allRooms = v ? Object.entries(v) : [];
 
-      let pulling = false;
-      let startY = 0;
-      let dist = 0;
+        const listVisible = !document.getElementById('screen-list').classList.contains('hidden');
+        const roomVisible = !document.getElementById('screen-room').classList.contains('hidden');
 
-      const MAX = 80;      // 아이콘 회전 max 기준 거리
-      const THRESH = 70;   // 새로고침 발동 거리
+        if (listVisible) renderList();
+        if (roomVisible && currentRoomId) renderRecommendations(currentRoomId);
 
-      function isAtTop() {
-        // 어떤 화면이든 "문서 최상단" 기준으로 동작
-        return (window.scrollY || document.documentElement.scrollTop || 0) <= 0;
+      } catch (e) {
+        // 최후 fallback
+        location.reload();
       }
-
-      function setUI(d) {
-        const clamped = Math.max(0, Math.min(MAX, d));
-        const ratio = clamped / MAX; // 0~1
-        const deg = ratio * 360;     // 최대 한바퀴
-        wrap.classList.add("ptr-show");
-        icon.style.transform = `rotate(${deg}deg)`;
-      }
-
-      function hideUI() {
-        wrap.classList.remove("ptr-show");
-        icon.style.transform = "rotate(0deg)";
-      }
-
-      // 스크롤 화면에서만 동작(메뉴/모달이면 무시)
-      function canPTR() {
-        const modalOn = document.getElementById("auth-modal").style.display === "flex";
-        const menuOn = document.getElementById("menu-overlay").style.display === "block";
-        return !modalOn && !menuOn;
-      }
-
-      window.addEventListener("touchstart", (e) => {
-        if (!canPTR()) return;
-        if (!isAtTop()) return;
-        if (!e.touches || e.touches.length !== 1) return;
-
-        pulling = true;
-        startY = e.touches[0].clientY;
-        dist = 0;
-      }, { passive: true });
-
-      window.addEventListener("touchmove", (e) => {
-        if (!pulling) return;
-        if (!e.touches || e.touches.length !== 1) return;
-
-        const y = e.touches[0].clientY;
-        dist = y - startY;
-
-        if (dist <= 0) {
-          // 위로 올리면 역회전/숨김
-          hideUI();
-          return;
-        }
-
-        // 아래로 당기는 중이면 기본 스크롤(바운스)을 막고 UI 노출
-        e.preventDefault();
-        setUI(dist);
-      }, { passive: false });
-
-      window.addEventListener("touchend", () => {
-        if (!pulling) return;
-        pulling = false;
-
-        if (dist >= THRESH) {
-          // 발동 시 살짝 고정 느낌
-          icon.style.transform = "rotate(360deg)";
-          setTimeout(() => location.reload(), 80);
-        } else {
-          hideUI();
-        }
-        dist = 0;
-      }, { passive: true });
-
-      window.addEventListener("touchcancel", () => {
-        pulling = false;
-        hideUI();
-        dist = 0;
-      }, { passive: true });
-    })();
-
-    /***********************
-     * ✅ 스크롤 vs 클릭 버그 해결
-     * - 모바일에서 스크롤 제스처를 "클릭"으로 처리하지 않게
-     * - 카드/추천/투표 옵션에 공통으로 적용할 수 있는 유틸
-     ***********************/
-    function attachTapGuard(el, onTap) {
-      let sx = 0, sy = 0, moved = false;
-      const MOVE_TH = 10; // px
-
-      el.addEventListener("touchstart", (e) => {
-        if (!e.touches || e.touches.length !== 1) return;
-        sx = e.touches[0].clientX;
-        sy = e.touches[0].clientY;
-        moved = false;
-      }, { passive: true });
-
-      el.addEventListener("touchmove", (e) => {
-        if (!e.touches || e.touches.length !== 1) return;
-        const dx = e.touches[0].clientX - sx;
-        const dy = e.touches[0].clientY - sy;
-        if (Math.abs(dx) > MOVE_TH || Math.abs(dy) > MOVE_TH) moved = true;
-      }, { passive: true });
-
-      el.addEventListener("touchend", (e) => {
-        if (moved) return; // 스크롤이면 탭 취소
-        e.preventDefault();
-        onTap(e);
-      }, { passive: false });
-
-      // 데스크탑/일반 브라우저 click
-      el.addEventListener("click", (e) => {
-        onTap(e);
-      });
     }
 
     /***********************
@@ -590,10 +543,7 @@
           })
           .sort((a, b) => getHotScore(b[1]) - getHotScore(a[1]));
       } else if (currentCategory === "내가 만든 투표") {
-        const myIds = new Set(getMyPollIds());
-        displayRooms = displayRooms.filter(([id, room]) =>
-          room.creatorFingerprint === myFingerprint || myIds.has(id)
-        );
+        displayRooms = displayRooms.filter(([id, room]) => room.creatorFingerprint === myFingerprint);
       } else if (currentCategory !== "전체") {
         displayRooms = displayRooms.filter(([id, room]) => (room.category || "일상/잡담") === currentCategory);
       }
@@ -613,7 +563,8 @@
         const div = document.createElement('div');
         div.className = "vote-card bg-white p-6 rounded-[2rem] shadow-sm clickable hover:ring-2 hover:ring-indigo-500";
 
-        attachTapGuard(div, () => enterRoom(id, false)); // ✅ 스크롤이면 클릭 취소
+        // ✅ 스크롤은 스크롤대로, 탭만 enterRoom
+        attachTap(div, () => enterRoom(id, false));
 
         div.innerHTML =
           `<div class="flex justify-between items-start mb-3">
@@ -662,13 +613,21 @@
     function renderRecommendations(excludeId) {
       const area = document.getElementById('recommend-list');
       area.innerHTML = "";
-      const recs = allRooms.filter(([id]) => id !== excludeId).sort(() => 0.5 - Math.random()).slice(0, 3);
+
+      const recs = allRooms
+        .filter(([id]) => id !== excludeId)
+        .sort(() => 0.5 - Math.random())
+        .slice(0, 3);
 
       recs.forEach(([id, room]) => {
         const d = document.createElement('div');
         d.className = "bg-gray-50 p-5 rounded-2xl clickable border border-gray-100 hover:bg-white hover:ring-1 hover:ring-indigo-200 transition-all";
 
-        attachTapGuard(d, (e) => { e.stopPropagation?.(); enterRoom(id, false); });
+        // ✅ 스크롤 방해 없이 탭만 이동
+        attachTap(d, (e) => {
+          if (e?.stopPropagation) e.stopPropagation();
+          enterRoom(id, false);
+        });
 
         d.innerHTML =
           `<div class="text-[8px] font-black text-indigo-400 uppercase mb-1">${room.category || '일상/잡담'}</div>
@@ -678,7 +637,7 @@
     }
 
     /***********************
-     * Create
+     * Create / Edit / Delete
      ***********************/
     function openCreateScreen(skipPush = false) {
       isEditMode = false;
@@ -736,12 +695,14 @@
       if (!hasOption) return alert("최소 한 개의 선택지가 필요합니다.");
 
       if (isEditMode) {
-        db.ref(`rooms/${currentRoomId}`).update({ title, category, desc, poll: { options } })
-          .then(() => {
-            alert("성공적으로 수정되었습니다.");
-            isEditMode = false;
-            enterRoom(currentRoomId, true, true);
-          });
+        db.ref(`rooms/${currentRoomId}`).update({
+          title, category, desc,
+          poll: { options }
+        }).then(() => {
+          alert("성공적으로 수정되었습니다.");
+          isEditMode = false;
+          enterRoom(currentRoomId, true, true);
+        });
         return;
       }
 
@@ -756,14 +717,13 @@
         createdAt: Date.now(),
         creatorFingerprint: myFingerprint
       }).then(() => {
-        rememberMyPoll(id);
         enterRoom(id, true, true);
       });
     }
     window.processCreate = processCreate;
 
     /***********************
-     * Auth modal
+     * Auth modal (edit/delete)
      ***********************/
     function openAuthModal(type) {
       const modal = document.getElementById('auth-modal');
@@ -781,7 +741,9 @@
     }
     window.openAuthModal = openAuthModal;
 
-    function closeAuthModal() { document.getElementById('auth-modal').style.display = 'none'; }
+    function closeAuthModal() {
+      document.getElementById('auth-modal').style.display = 'none';
+    }
     window.closeAuthModal = closeAuthModal;
 
     function handleEditAuth() {
@@ -830,7 +792,7 @@
     }
 
     /***********************
-     * Poll rendering + transaction
+     * Poll rendering + 투표 트랜잭션
      ***********************/
     function renderPoll(poll, votedIPs) {
       const area = document.getElementById('poll-display-area');
@@ -843,8 +805,7 @@
       const myVote = (myFingerprint && safeVotedIPs) ? safeVotedIPs[myFingerprint] : null;
 
       Object.entries(options).forEach(([label, count]) => {
-        // ✅ 이제 "괜찮다"도 보이게: 필터 제거
-        // if (label === "괜찮다") return;
+        // ✅ "괜찮다" 안보이던 문제 해결: 필터 제거 (그대로 보여줌)
 
         const per = total === 0 ? 0 : Math.round((Number(count) / total) * 100);
 
@@ -853,7 +814,7 @@
           `relative h-16 rounded-2xl overflow-hidden bg-gray-50 border border-gray-100 mb-3 clickable ` +
           `${myVote === label ? 'ring-2 ring-indigo-500 bg-white shadow-md' : ''}`;
 
-        const handler = async () => {
+        const doVote = async () => {
           if (!isSecureAccess()) return;
           if (!fpReady || !myFingerprint) return alert("식별값을 불러오는 중입니다. 잠시만 기다려주세요.");
           if (votingLock) return;
@@ -888,7 +849,7 @@
               return roomData;
             }, undefined, false);
 
-            // ✅ 뒤로가기 후 목록 반영 지연 방지: 목록 dirty 표시
+            // ✅ 목록 투표수 즉시 반영 플래그
             listDirty = true;
 
           } catch (err) {
@@ -899,8 +860,8 @@
           }
         };
 
-        // ✅ 스크롤이면 탭 취소(투표 옵션도 동일)
-        attachTapGuard(div, handler);
+        // ✅ 스크롤 방해 없이 탭만 투표
+        attachTap(div, () => doVote());
 
         const countDisplay = total > 0
           ? `<div class="flex items-center space-x-2 text-[11px] font-bold">
@@ -921,7 +882,111 @@
     }
 
     /***********************
-     * Boot
+     * ✅ Pull-to-refresh (당겨서 데이터 새로고침)
+     ***********************/
+    (function setupPullToRefresh() {
+      const ptrWrap = document.getElementById("ptr-wrap");
+      const ptrIcon = document.getElementById("ptr-icon");
+
+      let startY = 0;
+      let pulling = false;
+      let dist = 0;
+      let triggered = false;
+
+      const MAX_DIST = 120;   // 최대 당김
+      const TRIGGER = 78;     // 발동 거리
+      const ICON_SHOW_Y = 72; // 노출 영역 높이
+
+      function setPTRVisible(v) {
+        if (v) {
+          ptrWrap.style.opacity = "1";
+          ptrWrap.style.transform = "translateY(0px)";
+        } else {
+          ptrWrap.style.opacity = "0";
+          ptrWrap.style.transform = `translateY(-${ICON_SHOW_Y}px)`;
+        }
+      }
+
+      function setRotationByDist(d) {
+        const ratio = Math.max(0, Math.min(1, d / TRIGGER));
+        const deg = Math.round(ratio * 360);
+        ptrIcon.style.transform = `rotate(${deg}deg)`;
+      }
+
+      function resetPTR() {
+        triggered = false;
+        pulling = false;
+        dist = 0;
+        // 손 놓으면 반대로 "풀리며" 돌아가게: 0도로 복귀
+        ptrIcon.style.transform = "rotate(0deg)";
+        setPTRVisible(false);
+      }
+
+      // 입력 중에는 방해하지 않음
+      function isTypingTarget(el) {
+        if (!el) return false;
+        const tag = (el.tagName || "").toLowerCase();
+        return tag === "input" || tag === "textarea" || el.isContentEditable;
+      }
+
+      window.addEventListener("touchstart", (e) => {
+        if (window.scrollY !== 0) return;
+        if (!e.touches || e.touches.length !== 1) return;
+        if (isTypingTarget(e.target)) return;
+
+        startY = e.touches[0].clientY;
+        pulling = true;
+        triggered = false;
+        dist = 0;
+
+      }, { passive: true });
+
+      window.addEventListener("touchmove", (e) => {
+        if (!pulling) return;
+        if (!e.touches || e.touches.length !== 1) return;
+
+        const y = e.touches[0].clientY;
+        const raw = y - startY;
+        if (raw <= 0) {
+          // 위로 올리면 풀리기
+          dist = 0;
+          setRotationByDist(0);
+          setPTRVisible(false);
+          return;
+        }
+
+        // 아래로 당기는 중: 스크롤 대신 PTR
+        dist = Math.min(MAX_DIST, raw);
+        setPTRVisible(true);
+        setRotationByDist(dist);
+
+        // ✅ 이 경우에만 기본 스크롤/바운스를 막음 (리스트 스크롤 버그랑 분리)
+        e.preventDefault();
+      }, { passive: false });
+
+      window.addEventListener("touchend", async () => {
+        if (!pulling) return;
+
+        if (dist >= TRIGGER && !triggered) {
+          triggered = true;
+
+          // 발동: 한 바퀴 완성 후 softRefresh
+          ptrIcon.style.transform = "rotate(360deg)";
+
+          try {
+            await softRefresh();
+          } finally {
+            resetPTR();
+          }
+        } else {
+          // 발동 안하면 자연 복귀(반대로 풀리는 느낌은 0도로 돌아가며 구현)
+          resetPTR();
+        }
+      }, { passive: true });
+    })();
+
+    /***********************
+     * Boot: URL param 처리
      ***********************/
     (function boot() {
       if (document.getElementById('options-list').children.length === 0) {
@@ -937,6 +1002,7 @@
         enterRoom(rid, false, true);
       } else if (hash === "screen-list") {
         switchScreen("screen-list", true);
+        renderList();
       } else if (hash === "screen-create") {
         openCreateScreen(true);
       } else {
