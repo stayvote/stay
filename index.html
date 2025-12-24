@@ -18,15 +18,19 @@
   <!-- Tailwind -->
   <script src="https://cdn.tailwindcss.com"></script>
 
-  <!-- FingerprintJS (이 코드는 유지하되, "내가 만든 투표" 식별은 stay_uid로 고정) -->
+  <!-- FingerprintJS (유지) -->
   <script src="https://openfpcdn.io/fingerprintjs/v4/iife.min.js"></script>
 
-  <!-- ✅ Firebase compat -->
+  <!-- Firebase compat -->
   <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-database-compat.js"></script>
 
   <style>
     @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700;900&display=swap');
+
+    html, body {
+      height: 100%;
+    }
 
     body {
       font-family: 'Inter', sans-serif;
@@ -38,6 +42,7 @@
       position: relative;
       width: 100%;
       transform-origin: top;
+      touch-action: pan-y; /* ✅ 스크롤 우선 */
     }
 
     .glass { background: rgba(255, 255, 255, 0.98); backdrop-filter: blur(15px); border-bottom: 1px solid #f3f4f6; }
@@ -46,19 +51,11 @@
     div[id^="screen-"] { animation: fadeIn 0.2s ease-out; }
     @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
 
-    .vote-card {
-      transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-      border: 1px solid #f3f4f6;
-    }
+    .vote-card { transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1); border: 1px solid #f3f4f6; }
     @media (hover: hover) {
-      .vote-card:hover {
-        transform: translateY(-8px);
-        box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.08);
-        border-color: #6366f1;
-      }
+      .vote-card:hover { transform: translateY(-8px); box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.08); border-color: #6366f1; }
     }
-    .vote-card:active { transform: scale(0.97); }
-
+    .vote-card:active { transform: scale(0.985); }
     .vote-bar { transition: width 0.8s cubic-bezier(0.34, 1.56, 0.64, 1); }
 
     #side-menu {
@@ -67,6 +64,7 @@
       transform: translateX(-100%);
       transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);
       box-shadow: 20px 0 50px rgba(0,0,0,0.1);
+      will-change: transform;
     }
     #menu-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.5); z-index: 10000; display: none; }
 
@@ -80,11 +78,60 @@
 
     .hp-field { position: absolute; left: -9999px; top: -9999px; opacity: 0; }
 
-    .clickable { cursor: pointer; }
+    .clickable { cursor: pointer; -webkit-user-select: none; user-select: none; }
+
+    /* ===========================
+       ✅ Pull-to-refresh UI
+       =========================== */
+    #ptr-wrap {
+      position: fixed;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 64px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      z-index: 9999;
+      pointer-events: none;
+      opacity: 0;
+      transform: translateY(-64px);
+      transition: opacity 0.15s ease, transform 0.15s ease;
+      background: #ffffff; /* 당겼을 때 노출되는 흰부분 */
+    }
+    #ptr-icon {
+      width: 26px;
+      height: 26px;
+      fill: none;
+      stroke: #4f46e5;
+      stroke-width: 2.5;
+      stroke-linecap: round;
+      stroke-linejoin: round;
+      transform: rotate(0deg);
+      transition: transform 0.05s linear;
+    }
+    #ptr-icon path { vector-effect: non-scaling-stroke; }
+    .ptr-show {
+      opacity: 1 !important;
+      transform: translateY(0) !important;
+    }
+
+    /* screen containers */
+    #screen-list, #screen-room, #screen-create {
+      -webkit-overflow-scrolling: touch;
+    }
   </style>
 </head>
 
 <body>
+  <!-- Pull to refresh -->
+  <div id="ptr-wrap" aria-hidden="true">
+    <svg id="ptr-icon" viewBox="0 0 24 24">
+      <path d="M23 4v6h-6M1 20v-6h6"></path>
+      <path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"></path>
+    </svg>
+  </div>
+
   <!-- 허니팟 -->
   <input type="text" id="hp_nickname" class="hp-field" tabindex="-1" autocomplete="off" />
 
@@ -200,7 +247,7 @@
 
   <script>
     /***********************
-     * ✅ Firebase init (compat)
+     * Firebase init (compat)
      ***********************/
     const firebaseConfig = {
       apiKey: "AIzaSyAgydW97uyDPNqs5VPZnSt5E-fytezqVO0",
@@ -220,52 +267,16 @@
     let currentCategory = "전체";
     let isEditMode = false;
 
-    // ✅ "내가 만든 투표"가 업데이트 후 사라지지 않도록: 고정 UID
     let myFingerprint = "";
     let fpReady = false;
 
     let votingLock = false;
-    let roomListenerRef = null; // enterRoom 중복 리스너 방지
+    let roomListenerRef = null;
 
-    // ✅ 목록 반영 지연 해결용
     let listDirty = false;
 
     /***********************
-     * Helpers
-     ***********************/
-    function isSecureAccess() {
-      return document.getElementById('hp_nickname').value === "";
-    }
-
-    function sumVotesFromOptions(options) {
-      if (!options || typeof options !== "object") return 0;
-      return Object.values(options).reduce((a, b) => Number(a) + Number(b), 0);
-    }
-
-    function getTimeAgo(ts) {
-      const sec = Math.floor((Date.now() - ts) / 1000);
-      if (sec < 60) return "방금 전";
-      if (sec < 3600) return Math.floor(sec/60) + "분 전";
-      if (sec < 86400) return Math.floor(sec/3600) + "시간 전";
-      return Math.floor(sec/86400) + "일 전";
-    }
-
-    function formatExactDate(ts) {
-      const d = new Date(ts);
-      return `${d.getMonth() + 1}.${d.getDate()} ${String(d.getHours()).padStart(2,'0')}:${String(d.getMinutes()).padStart(2,'0')}`;
-    }
-
-    function escapeHtml(str) {
-      return String(str)
-        .replaceAll("&", "&amp;")
-        .replaceAll("<", "&lt;")
-        .replaceAll(">", "&gt;")
-        .replaceAll('"', "&quot;")
-        .replaceAll("'", "&#039;");
-    }
-
-    /***********************
-     * ✅ "내" 고정 UID (업데이트/카톡/브라우저 바뀌어도 유지)
+     * Stable identity
      ***********************/
     function getOrCreateUID() {
       let uid = localStorage.getItem("stay_uid");
@@ -274,8 +285,6 @@
       localStorage.setItem("stay_uid", uid);
       return uid;
     }
-
-    // ✅ 내 투표ID도 저장(보강: creatorFingerprint가 바뀌어도 내 글 목록 유지)
     function rememberMyPoll(id) {
       const key = "stay_my_polls";
       let arr = [];
@@ -288,14 +297,42 @@
       catch { return []; }
     }
 
-    // ✅ FingerprintJS는 "투표 중복 방지" 등에 쓰고 싶으면 별도로 써도 되지만,
-    // 지금 목표는 "내가 만든 투표 유지"가 최우선이라 myFingerprint는 stay_uid로 고정.
     (async function setStableIdentity() {
       myFingerprint = getOrCreateUID();
       fpReady = true;
-      // (원하면) FP는 별도 변수로만 읽기. 여기서는 동작 영향 0.
+      // FPJS는 필요하면 별도로
       // try { const fp = await window.FingerprintJS.load(); const res = await fp.get(); window.__fp = res.visitorId; } catch(_) {}
     })();
+
+    /***********************
+     * Helpers
+     ***********************/
+    function isSecureAccess() {
+      return document.getElementById('hp_nickname').value === "";
+    }
+    function sumVotesFromOptions(options) {
+      if (!options || typeof options !== "object") return 0;
+      return Object.values(options).reduce((a, b) => Number(a) + Number(b), 0);
+    }
+    function getTimeAgo(ts) {
+      const sec = Math.floor((Date.now() - ts) / 1000);
+      if (sec < 60) return "방금 전";
+      if (sec < 3600) return Math.floor(sec/60) + "분 전";
+      if (sec < 86400) return Math.floor(sec/3600) + "시간 전";
+      return Math.floor(sec/86400) + "일 전";
+    }
+    function formatExactDate(ts) {
+      const d = new Date(ts);
+      return `${d.getMonth() + 1}.${d.getDate()} ${String(d.getHours()).padStart(2,'0')}:${String(d.getMinutes()).padStart(2,'0')}`;
+    }
+    function escapeHtml(str) {
+      return String(str)
+        .replaceAll("&", "&amp;")
+        .replaceAll("<", "&lt;")
+        .replaceAll(">", "&gt;")
+        .replaceAll('"', "&quot;")
+        .replaceAll("'", "&#039;");
+    }
 
     /***********************
      * Navigation
@@ -317,14 +354,9 @@
         }
       }
 
-      // ✅ (수정1) 목록 화면 들어올 때, 투표 후 뒤로가기 반영 지연 해결
       if (id === 'screen-list') {
-        if (listDirty) {
-          renderList();
-          listDirty = false;
-        } else {
-          renderList();
-        }
+        if (listDirty) { renderList(); listDirty = false; }
+        else { renderList(); }
       }
 
       window.scrollTo(0, 0);
@@ -337,10 +369,8 @@
       const rid = url.searchParams.get("id");
       const hash = location.hash.replace('#','');
 
-      if (rid) {
-        enterRoom(rid, false, true);
-        return;
-      }
+      if (rid) { enterRoom(rid, false, true); return; }
+
       if (state?.screen === 'screen-room' && state.roomId) {
         enterRoom(state.roomId, false, true);
       } else if (hash === 'screen-list') {
@@ -386,36 +416,149 @@
     }
     window.toggleMenu = toggleMenu;
 
-    function filterByCategory(c) {
-      currentCategory = c;
-      renderList();
-      toggleMenu();
-    }
+    function filterByCategory(c) { currentCategory = c; renderList(); toggleMenu(); }
     window.filterByCategory = filterByCategory;
 
-    function showMyCreatedPolls() {
-      currentCategory = "내가 만든 투표";
-      renderList();
-      toggleMenu();
-    }
+    function showMyCreatedPolls() { currentCategory = "내가 만든 투표"; renderList(); toggleMenu(); }
     window.showMyCreatedPolls = showMyCreatedPolls;
 
     /***********************
      * Data sync
-     * ✅ (수정2) screen-list가 아닐 때도 allRooms는 항상 최신으로 유지
-     * - list 화면이 아니면 renderList 대신 listDirty만 true
      ***********************/
     const roomsRef = db.ref('rooms');
     roomsRef.on('value', (snap) => {
       const v = snap.val();
       allRooms = v ? Object.entries(v) : [];
-
-      if (!document.getElementById('screen-list').classList.contains('hidden')) {
-        renderList();
-      } else {
-        listDirty = true;
-      }
+      if (!document.getElementById('screen-list').classList.contains('hidden')) renderList();
+      else listDirty = true;
     });
+
+    /***********************
+     * ✅ Pull-to-refresh (모바일 전용 느낌)
+     * - 최상단에서 아래로 당기면 아이콘 노출
+     * - 회전 최대 360도
+     * - 되돌리면 역회전
+     * - 임계치 넘으면 location.reload()
+     ***********************/
+    (function setupPullToRefresh() {
+      const wrap = document.getElementById("ptr-wrap");
+      const icon = document.getElementById("ptr-icon");
+
+      let pulling = false;
+      let startY = 0;
+      let dist = 0;
+
+      const MAX = 80;      // 아이콘 회전 max 기준 거리
+      const THRESH = 70;   // 새로고침 발동 거리
+
+      function isAtTop() {
+        // 어떤 화면이든 "문서 최상단" 기준으로 동작
+        return (window.scrollY || document.documentElement.scrollTop || 0) <= 0;
+      }
+
+      function setUI(d) {
+        const clamped = Math.max(0, Math.min(MAX, d));
+        const ratio = clamped / MAX; // 0~1
+        const deg = ratio * 360;     // 최대 한바퀴
+        wrap.classList.add("ptr-show");
+        icon.style.transform = `rotate(${deg}deg)`;
+      }
+
+      function hideUI() {
+        wrap.classList.remove("ptr-show");
+        icon.style.transform = "rotate(0deg)";
+      }
+
+      // 스크롤 화면에서만 동작(메뉴/모달이면 무시)
+      function canPTR() {
+        const modalOn = document.getElementById("auth-modal").style.display === "flex";
+        const menuOn = document.getElementById("menu-overlay").style.display === "block";
+        return !modalOn && !menuOn;
+      }
+
+      window.addEventListener("touchstart", (e) => {
+        if (!canPTR()) return;
+        if (!isAtTop()) return;
+        if (!e.touches || e.touches.length !== 1) return;
+
+        pulling = true;
+        startY = e.touches[0].clientY;
+        dist = 0;
+      }, { passive: true });
+
+      window.addEventListener("touchmove", (e) => {
+        if (!pulling) return;
+        if (!e.touches || e.touches.length !== 1) return;
+
+        const y = e.touches[0].clientY;
+        dist = y - startY;
+
+        if (dist <= 0) {
+          // 위로 올리면 역회전/숨김
+          hideUI();
+          return;
+        }
+
+        // 아래로 당기는 중이면 기본 스크롤(바운스)을 막고 UI 노출
+        e.preventDefault();
+        setUI(dist);
+      }, { passive: false });
+
+      window.addEventListener("touchend", () => {
+        if (!pulling) return;
+        pulling = false;
+
+        if (dist >= THRESH) {
+          // 발동 시 살짝 고정 느낌
+          icon.style.transform = "rotate(360deg)";
+          setTimeout(() => location.reload(), 80);
+        } else {
+          hideUI();
+        }
+        dist = 0;
+      }, { passive: true });
+
+      window.addEventListener("touchcancel", () => {
+        pulling = false;
+        hideUI();
+        dist = 0;
+      }, { passive: true });
+    })();
+
+    /***********************
+     * ✅ 스크롤 vs 클릭 버그 해결
+     * - 모바일에서 스크롤 제스처를 "클릭"으로 처리하지 않게
+     * - 카드/추천/투표 옵션에 공통으로 적용할 수 있는 유틸
+     ***********************/
+    function attachTapGuard(el, onTap) {
+      let sx = 0, sy = 0, moved = false;
+      const MOVE_TH = 10; // px
+
+      el.addEventListener("touchstart", (e) => {
+        if (!e.touches || e.touches.length !== 1) return;
+        sx = e.touches[0].clientX;
+        sy = e.touches[0].clientY;
+        moved = false;
+      }, { passive: true });
+
+      el.addEventListener("touchmove", (e) => {
+        if (!e.touches || e.touches.length !== 1) return;
+        const dx = e.touches[0].clientX - sx;
+        const dy = e.touches[0].clientY - sy;
+        if (Math.abs(dx) > MOVE_TH || Math.abs(dy) > MOVE_TH) moved = true;
+      }, { passive: true });
+
+      el.addEventListener("touchend", (e) => {
+        if (moved) return; // 스크롤이면 탭 취소
+        e.preventDefault();
+        onTap(e);
+      }, { passive: false });
+
+      // 데스크탑/일반 브라우저 click
+      el.addEventListener("click", (e) => {
+        onTap(e);
+      });
+    }
 
     /***********************
      * List rendering
@@ -447,7 +590,6 @@
           })
           .sort((a, b) => getHotScore(b[1]) - getHotScore(a[1]));
       } else if (currentCategory === "내가 만든 투표") {
-        // ✅ creatorFingerprint 매칭 + 로컬에 저장된 내 글 id도 포함
         const myIds = new Set(getMyPollIds());
         displayRooms = displayRooms.filter(([id, room]) =>
           room.creatorFingerprint === myFingerprint || myIds.has(id)
@@ -460,7 +602,7 @@
       if (currentCategory !== "실시간 핫") filtered.sort((a, b) => (b[1].createdAt || 0) - (a[1].createdAt || 0));
 
       filtered.forEach(([id, room]) => {
-        const totalVotes = sumVotesFromOptions(room?.poll?.options); // 상세페이지와 동일 기준
+        const totalVotes = sumVotesFromOptions(room?.poll?.options);
         const timeText = room.createdAt ? getTimeAgo(room.createdAt) : "오래전";
 
         const isHot = (getHotScore(room) > 0.1 || topHotIds.includes(id)) && totalVotes > 0;
@@ -471,8 +613,7 @@
         const div = document.createElement('div');
         div.className = "vote-card bg-white p-6 rounded-[2rem] shadow-sm clickable hover:ring-2 hover:ring-indigo-500";
 
-        div.addEventListener("click", () => enterRoom(id, false));
-        div.addEventListener("touchend", (e) => { e.preventDefault(); enterRoom(id, false); }, { passive: false });
+        attachTapGuard(div, () => enterRoom(id, false)); // ✅ 스크롤이면 클릭 취소
 
         div.innerHTML =
           `<div class="flex justify-between items-start mb-3">
@@ -527,8 +668,7 @@
         const d = document.createElement('div');
         d.className = "bg-gray-50 p-5 rounded-2xl clickable border border-gray-100 hover:bg-white hover:ring-1 hover:ring-indigo-200 transition-all";
 
-        d.addEventListener("click", (e) => { e.stopPropagation(); enterRoom(id, false); });
-        d.addEventListener("touchend", (e) => { e.preventDefault(); e.stopPropagation(); enterRoom(id, false); }, { passive: false });
+        attachTapGuard(d, (e) => { e.stopPropagation?.(); enterRoom(id, false); });
 
         d.innerHTML =
           `<div class="text-[8px] font-black text-indigo-400 uppercase mb-1">${room.category || '일상/잡담'}</div>
@@ -538,7 +678,7 @@
     }
 
     /***********************
-     * Create / Edit / Delete
+     * Create
      ***********************/
     function openCreateScreen(skipPush = false) {
       isEditMode = false;
@@ -596,14 +736,12 @@
       if (!hasOption) return alert("최소 한 개의 선택지가 필요합니다.");
 
       if (isEditMode) {
-        db.ref(`rooms/${currentRoomId}`).update({
-          title, category, desc,
-          poll: { options }
-        }).then(() => {
-          alert("성공적으로 수정되었습니다.");
-          isEditMode = false;
-          enterRoom(currentRoomId, true, true);
-        });
+        db.ref(`rooms/${currentRoomId}`).update({ title, category, desc, poll: { options } })
+          .then(() => {
+            alert("성공적으로 수정되었습니다.");
+            isEditMode = false;
+            enterRoom(currentRoomId, true, true);
+          });
         return;
       }
 
@@ -616,16 +754,16 @@
         poll: { options },
         votedIPs: {},
         createdAt: Date.now(),
-        creatorFingerprint: myFingerprint // ✅ 안정 UID
+        creatorFingerprint: myFingerprint
       }).then(() => {
-        rememberMyPoll(id); // ✅ 내 글 id도 로컬에 저장
+        rememberMyPoll(id);
         enterRoom(id, true, true);
       });
     }
     window.processCreate = processCreate;
 
     /***********************
-     * Auth modal (edit/delete)
+     * Auth modal
      ***********************/
     function openAuthModal(type) {
       const modal = document.getElementById('auth-modal');
@@ -643,9 +781,7 @@
     }
     window.openAuthModal = openAuthModal;
 
-    function closeAuthModal() {
-      document.getElementById('auth-modal').style.display = 'none';
-    }
+    function closeAuthModal() { document.getElementById('auth-modal').style.display = 'none'; }
     window.closeAuthModal = closeAuthModal;
 
     function handleEditAuth() {
@@ -707,8 +843,8 @@
       const myVote = (myFingerprint && safeVotedIPs) ? safeVotedIPs[myFingerprint] : null;
 
       Object.entries(options).forEach(([label, count]) => {
-        // ✅ 기존 코드에 있던 필터 그대로 유지 (원하면 제거 가능)
-        if (label === "괜찮다") return;
+        // ✅ 이제 "괜찮다"도 보이게: 필터 제거
+        // if (label === "괜찮다") return;
 
         const per = total === 0 ? 0 : Math.round((Number(count) / total) * 100);
 
@@ -717,8 +853,7 @@
           `relative h-16 rounded-2xl overflow-hidden bg-gray-50 border border-gray-100 mb-3 clickable ` +
           `${myVote === label ? 'ring-2 ring-indigo-500 bg-white shadow-md' : ''}`;
 
-        const handler = async (e) => {
-          if (e) e.preventDefault?.();
+        const handler = async () => {
           if (!isSecureAccess()) return;
           if (!fpReady || !myFingerprint) return alert("식별값을 불러오는 중입니다. 잠시만 기다려주세요.");
           if (votingLock) return;
@@ -753,6 +888,9 @@
               return roomData;
             }, undefined, false);
 
+            // ✅ 뒤로가기 후 목록 반영 지연 방지: 목록 dirty 표시
+            listDirty = true;
+
           } catch (err) {
             console.error(err);
             alert("네트워크/권한 문제로 투표가 실패했습니다.\n(카톡이면 우측 상단 ⋮ → 브라우저에서 열기 권장)");
@@ -761,8 +899,8 @@
           }
         };
 
-        div.addEventListener("click", handler);
-        div.addEventListener("touchend", handler, { passive: false });
+        // ✅ 스크롤이면 탭 취소(투표 옵션도 동일)
+        attachTapGuard(div, handler);
 
         const countDisplay = total > 0
           ? `<div class="flex items-center space-x-2 text-[11px] font-bold">
@@ -808,4 +946,5 @@
   </script>
 </body>
 </html>
+
 
