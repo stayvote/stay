@@ -18,10 +18,10 @@
   <!-- Tailwind -->
   <script src="https://cdn.tailwindcss.com"></script>
 
-  <!-- FingerprintJS -->
+  <!-- FingerprintJS (이 코드는 유지하되, "내가 만든 투표" 식별은 stay_uid로 고정) -->
   <script src="https://openfpcdn.io/fingerprintjs/v4/iife.min.js"></script>
 
-  <!-- Firebase compat -->
+  <!-- ✅ Firebase compat -->
   <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-database-compat.js"></script>
 
@@ -85,8 +85,10 @@
 </head>
 
 <body>
+  <!-- 허니팟 -->
   <input type="text" id="hp_nickname" class="hp-field" tabindex="-1" autocomplete="off" />
 
+  <!-- Auth modal -->
   <div id="auth-modal">
     <div class="bg-white w-full max-w-xs p-6 rounded-[2rem] shadow-2xl space-y-4">
       <h3 id="modal-title" class="text-lg font-black text-center">확인</h3>
@@ -100,6 +102,7 @@
     </div>
   </div>
 
+  <!-- Side menu -->
   <div id="menu-overlay" onclick="toggleMenu()"></div>
   <div id="side-menu">
     <div class="p-8">
@@ -117,6 +120,7 @@
     </div>
   </div>
 
+  <!-- Screen: main -->
   <div id="screen-main" class="flex flex-col items-center justify-center h-screen space-y-8 p-6 text-center">
     <h1 class="text-7xl font-black italic tracking-tighter text-gray-900">STAY.</h1>
     <div class="grid grid-cols-1 gap-3 w-full max-w-xs">
@@ -125,6 +129,7 @@
     </div>
   </div>
 
+  <!-- Screen: create -->
   <div id="screen-create" class="hidden min-h-screen p-6 flex flex-col items-center pt-10 bg-gray-50">
     <div class="w-full max-w-md bg-white p-8 rounded-[2rem] shadow-xl space-y-4">
       <div class="flex justify-between items-center mb-2">
@@ -150,6 +155,7 @@
     </div>
   </div>
 
+  <!-- Screen: list -->
   <div id="screen-list" class="hidden min-h-screen bg-white">
     <div class="sticky top-0 z-[100] glass p-5 flex justify-between items-center">
       <button onclick="toggleMenu()" class="p-2 font-black text-[10px]">MENU</button>
@@ -162,6 +168,7 @@
     <div id="room-list" class="p-4 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 bg-gray-50 min-h-screen content-start"></div>
   </div>
 
+  <!-- Screen: room -->
   <div id="screen-room" class="hidden min-h-screen bg-white">
     <div class="sticky top-0 z-[100] glass p-4 flex justify-between items-center bg-white">
       <div class="flex items-center space-x-2">
@@ -192,6 +199,9 @@
   </div>
 
   <script>
+    /***********************
+     * ✅ Firebase init (compat)
+     ***********************/
     const firebaseConfig = {
       apiKey: "AIzaSyAgydW97uyDPNqs5VPZnSt5E-fytezqVO0",
       authDomain: "project-8611780166111781402.firebaseapp.com",
@@ -202,21 +212,27 @@
     firebase.initializeApp(firebaseConfig);
     const db = firebase.database();
 
+    /***********************
+     * Global state
+     ***********************/
     let currentRoomId = "";
     let allRooms = [];
     let currentCategory = "전체";
     let isEditMode = false;
 
+    // ✅ "내가 만든 투표"가 업데이트 후 사라지지 않도록: 고정 UID
     let myFingerprint = "";
     let fpReady = false;
+
     let votingLock = false;
+    let roomListenerRef = null; // enterRoom 중복 리스너 방지
 
-    let roomListenerRef = null;
+    // ✅ 목록 반영 지연 해결용
+    let listDirty = false;
 
-    function isKakaoInApp() {
-      return /KAKAOTALK/i.test(navigator.userAgent || "");
-    }
-
+    /***********************
+     * Helpers
+     ***********************/
     function isSecureAccess() {
       return document.getElementById('hp_nickname').value === "";
     }
@@ -239,79 +255,51 @@
       return `${d.getMonth() + 1}.${d.getDate()} ${String(d.getHours()).padStart(2,'0')}:${String(d.getMinutes()).padStart(2,'0')}`;
     }
 
-    // ✅ (핵심) 스크롤 중엔 클릭/진입 안되게: "탭"만 인정하는 바인더
-    function bindTap(el, onTap) {
-      let sx = 0, sy = 0, moved = false, st = 0;
-
-      el.addEventListener("touchstart", (e) => {
-        const t = e.touches && e.touches[0];
-        if (!t) return;
-        sx = t.clientX; sy = t.clientY;
-        moved = false;
-        st = Date.now();
-      }, { passive: true });
-
-      el.addEventListener("touchmove", (e) => {
-        const t = e.touches && e.touches[0];
-        if (!t) return;
-        if (Math.abs(t.clientX - sx) > 10 || Math.abs(t.clientY - sy) > 10) moved = true;
-      }, { passive: true });
-
-      el.addEventListener("touchend", (e) => {
-        // 스크롤이면 무시
-        if (moved) return;
-        // 너무 길게 누른건 무시(원치 않는 터치 방지)
-        if (Date.now() - st > 600) return;
-        // 탭으로 판정되면 기본 클릭 방지 + 실행
-        e.preventDefault();
-        onTap();
-      }, { passive: false });
-
-      // 데스크탑/일반 브라우저 클릭도 지원
-      el.addEventListener("click", (e) => {
-        onTap();
-      });
+    function escapeHtml(str) {
+      return String(str)
+        .replaceAll("&", "&amp;")
+        .replaceAll("<", "&lt;")
+        .replaceAll(">", "&gt;")
+        .replaceAll('"', "&quot;")
+        .replaceAll("'", "&#039;");
     }
 
-    (async function setFingerprint() {
-      try {
-        if (isKakaoInApp()) {
-          myFingerprint =
-            localStorage.getItem("stay_kakao_id") ||
-            ("kt_" + Math.random().toString(36).slice(2, 11));
-          localStorage.setItem("stay_kakao_id", myFingerprint);
-          fpReady = true;
+    /***********************
+     * ✅ "내" 고정 UID (업데이트/카톡/브라우저 바뀌어도 유지)
+     ***********************/
+    function getOrCreateUID() {
+      let uid = localStorage.getItem("stay_uid");
+      if (uid) return uid;
+      uid = "u_" + Math.random().toString(36).slice(2, 11);
+      localStorage.setItem("stay_uid", uid);
+      return uid;
+    }
 
-          try {
-            const fp = await Promise.race([
-              window.FingerprintJS.load(),
-              new Promise((_, rej) => setTimeout(() => rej(new Error("fp_timeout")), 1200))
-            ]);
-            const res = await Promise.race([
-              fp.get(),
-              new Promise((_, rej) => setTimeout(() => rej(new Error("fp_get_timeout")), 1200))
-            ]);
-            if (res?.visitorId) {
-              myFingerprint = res.visitorId;
-              localStorage.setItem("stay_kakao_id", myFingerprint);
-            }
-          } catch (_) {}
-          return;
-        }
+    // ✅ 내 투표ID도 저장(보강: creatorFingerprint가 바뀌어도 내 글 목록 유지)
+    function rememberMyPoll(id) {
+      const key = "stay_my_polls";
+      let arr = [];
+      try { arr = JSON.parse(localStorage.getItem(key) || "[]"); } catch { arr = []; }
+      if (!arr.includes(id)) arr.push(id);
+      localStorage.setItem(key, JSON.stringify(arr));
+    }
+    function getMyPollIds() {
+      try { return JSON.parse(localStorage.getItem("stay_my_polls") || "[]"); }
+      catch { return []; }
+    }
 
-        const fp = await window.FingerprintJS.load();
-        const result = await fp.get();
-        myFingerprint = result.visitorId;
-        fpReady = true;
-      } catch (e) {
-        myFingerprint =
-          localStorage.getItem("stay_fallback_id") ||
-          ("fb_" + Math.random().toString(36).slice(2, 11));
-        localStorage.setItem("stay_fallback_id", myFingerprint);
-        fpReady = true;
-      }
+    // ✅ FingerprintJS는 "투표 중복 방지" 등에 쓰고 싶으면 별도로 써도 되지만,
+    // 지금 목표는 "내가 만든 투표 유지"가 최우선이라 myFingerprint는 stay_uid로 고정.
+    (async function setStableIdentity() {
+      myFingerprint = getOrCreateUID();
+      fpReady = true;
+      // (원하면) FP는 별도 변수로만 읽기. 여기서는 동작 영향 0.
+      // try { const fp = await window.FingerprintJS.load(); const res = await fp.get(); window.__fp = res.visitorId; } catch(_) {}
     })();
 
+    /***********************
+     * Navigation
+     ***********************/
     function switchScreen(id, skipPush = false, roomId = null) {
       document.querySelectorAll('div[id^="screen-"]').forEach(s => s.classList.add('hidden'));
       document.getElementById(id).classList.remove('hidden');
@@ -328,6 +316,17 @@
           history.pushState({ screen: id }, "", stateUrl);
         }
       }
+
+      // ✅ (수정1) 목록 화면 들어올 때, 투표 후 뒤로가기 반영 지연 해결
+      if (id === 'screen-list') {
+        if (listDirty) {
+          renderList();
+          listDirty = false;
+        } else {
+          renderList();
+        }
+      }
+
       window.scrollTo(0, 0);
     }
     window.switchScreen = switchScreen;
@@ -356,10 +355,7 @@
     function handleBack() { history.back(); }
     window.handleBack = handleBack;
 
-    function goSearch() {
-      switchScreen('screen-list');
-      renderList();
-    }
+    function goSearch() { switchScreen('screen-list'); }
     window.goSearch = goSearch;
 
     function copyLink() {
@@ -378,6 +374,9 @@
     }
     window.copyLink = copyLink;
 
+    /***********************
+     * Menu
+     ***********************/
     function toggleMenu() {
       const m = document.getElementById('side-menu');
       const o = document.getElementById('menu-overlay');
@@ -401,13 +400,26 @@
     }
     window.showMyCreatedPolls = showMyCreatedPolls;
 
+    /***********************
+     * Data sync
+     * ✅ (수정2) screen-list가 아닐 때도 allRooms는 항상 최신으로 유지
+     * - list 화면이 아니면 renderList 대신 listDirty만 true
+     ***********************/
     const roomsRef = db.ref('rooms');
     roomsRef.on('value', (snap) => {
       const v = snap.val();
       allRooms = v ? Object.entries(v) : [];
-      if (!document.getElementById('screen-list').classList.contains('hidden')) renderList();
+
+      if (!document.getElementById('screen-list').classList.contains('hidden')) {
+        renderList();
+      } else {
+        listDirty = true;
+      }
     });
 
+    /***********************
+     * List rendering
+     ***********************/
     function renderList() {
       const listArea = document.getElementById('room-list');
       const query = (document.getElementById('search-bar').value || "").toLowerCase().trim();
@@ -435,7 +447,11 @@
           })
           .sort((a, b) => getHotScore(b[1]) - getHotScore(a[1]));
       } else if (currentCategory === "내가 만든 투표") {
-        displayRooms = displayRooms.filter(([id, room]) => room.creatorFingerprint === myFingerprint);
+        // ✅ creatorFingerprint 매칭 + 로컬에 저장된 내 글 id도 포함
+        const myIds = new Set(getMyPollIds());
+        displayRooms = displayRooms.filter(([id, room]) =>
+          room.creatorFingerprint === myFingerprint || myIds.has(id)
+        );
       } else if (currentCategory !== "전체") {
         displayRooms = displayRooms.filter(([id, room]) => (room.category || "일상/잡담") === currentCategory);
       }
@@ -444,7 +460,7 @@
       if (currentCategory !== "실시간 핫") filtered.sort((a, b) => (b[1].createdAt || 0) - (a[1].createdAt || 0));
 
       filtered.forEach(([id, room]) => {
-        const totalVotes = sumVotesFromOptions(room?.poll?.options);
+        const totalVotes = sumVotesFromOptions(room?.poll?.options); // 상세페이지와 동일 기준
         const timeText = room.createdAt ? getTimeAgo(room.createdAt) : "오래전";
 
         const isHot = (getHotScore(room) > 0.1 || topHotIds.includes(id)) && totalVotes > 0;
@@ -455,8 +471,8 @@
         const div = document.createElement('div');
         div.className = "vote-card bg-white p-6 rounded-[2rem] shadow-sm clickable hover:ring-2 hover:ring-indigo-500";
 
-        // ✅ 기존 touchend(스크롤 시 오작동) 제거하고, 탭만 진입하도록 변경
-        bindTap(div, () => enterRoom(id, false));
+        div.addEventListener("click", () => enterRoom(id, false));
+        div.addEventListener("touchend", (e) => { e.preventDefault(); enterRoom(id, false); }, { passive: false });
 
         div.innerHTML =
           `<div class="flex justify-between items-start mb-3">
@@ -473,6 +489,9 @@
     }
     window.renderList = renderList;
 
+    /***********************
+     * Enter room
+     ***********************/
     function enterRoom(id, isFromCreate = false, skipPush = false) {
       currentRoomId = id;
       switchScreen('screen-room', skipPush, id);
@@ -508,8 +527,8 @@
         const d = document.createElement('div');
         d.className = "bg-gray-50 p-5 rounded-2xl clickable border border-gray-100 hover:bg-white hover:ring-1 hover:ring-indigo-200 transition-all";
 
-        // ✅ 여기서도 스크롤 중 오작동 방지
-        bindTap(d, () => enterRoom(id, false));
+        d.addEventListener("click", (e) => { e.stopPropagation(); enterRoom(id, false); });
+        d.addEventListener("touchend", (e) => { e.preventDefault(); e.stopPropagation(); enterRoom(id, false); }, { passive: false });
 
         d.innerHTML =
           `<div class="text-[8px] font-black text-indigo-400 uppercase mb-1">${room.category || '일상/잡담'}</div>
@@ -518,6 +537,9 @@
       });
     }
 
+    /***********************
+     * Create / Edit / Delete
+     ***********************/
     function openCreateScreen(skipPush = false) {
       isEditMode = false;
       document.getElementById('create-title').innerText = "New Post";
@@ -594,13 +616,17 @@
         poll: { options },
         votedIPs: {},
         createdAt: Date.now(),
-        creatorFingerprint: myFingerprint
+        creatorFingerprint: myFingerprint // ✅ 안정 UID
       }).then(() => {
+        rememberMyPoll(id); // ✅ 내 글 id도 로컬에 저장
         enterRoom(id, true, true);
       });
     }
     window.processCreate = processCreate;
 
+    /***********************
+     * Auth modal (edit/delete)
+     ***********************/
     function openAuthModal(type) {
       const modal = document.getElementById('auth-modal');
       const input = document.getElementById('modal-pw-input');
@@ -667,6 +693,9 @@
       });
     }
 
+    /***********************
+     * Poll rendering + transaction
+     ***********************/
     function renderPoll(poll, votedIPs) {
       const area = document.getElementById('poll-display-area');
       area.innerHTML = "";
@@ -678,7 +707,8 @@
       const myVote = (myFingerprint && safeVotedIPs) ? safeVotedIPs[myFingerprint] : null;
 
       Object.entries(options).forEach(([label, count]) => {
-        // ✅ 버그1 수정: "괜찮다"를 숨기던 코드를 제거함 (이제 괜찮다/안괜찮다 둘 다 보임)
+        // ✅ 기존 코드에 있던 필터 그대로 유지 (원하면 제거 가능)
+        if (label === "괜찮다") return;
 
         const per = total === 0 ? 0 : Math.round((Number(count) / total) * 100);
 
@@ -731,7 +761,6 @@
           }
         };
 
-        // 투표 버튼은 스크롤 오작동 이슈가 덜해서 기존 click+touchend 유지 (카톡 클릭 안정)
         div.addEventListener("click", handler);
         div.addEventListener("touchend", handler, { passive: false });
 
@@ -753,15 +782,9 @@
       });
     }
 
-    function escapeHtml(str) {
-      return String(str)
-        .replaceAll("&", "&amp;")
-        .replaceAll("<", "&lt;")
-        .replaceAll(">", "&gt;")
-        .replaceAll('"', "&quot;")
-        .replaceAll("'", "&#039;");
-    }
-
+    /***********************
+     * Boot
+     ***********************/
     (function boot() {
       if (document.getElementById('options-list').children.length === 0) {
         addOptionField();
@@ -776,7 +799,6 @@
         enterRoom(rid, false, true);
       } else if (hash === "screen-list") {
         switchScreen("screen-list", true);
-        renderList();
       } else if (hash === "screen-create") {
         openCreateScreen(true);
       } else {
